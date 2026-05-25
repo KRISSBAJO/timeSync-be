@@ -186,7 +186,7 @@ async function smokeFetch(session, path, init, expectedStatus, summary, validate
 
   if (response.status !== expectedStatus) {
     const message = errorMessage(body, response);
-    throw new Error(`${method} ${path} expected ${expectedStatus}, received ${response.status}: ${message}`);
+    throw new Error(`${method} ${path} expected ${expectedStatus}, received ${response.status}: ${appendRepairHint(message, response)}`);
   }
 
   if (validate) {
@@ -364,6 +364,14 @@ function errorMessage(body, response) {
   }
 
   return response.statusText || 'Unexpected response';
+}
+
+function appendRepairHint(message, response) {
+  if (response.status !== 403 || !String(message).includes('recruitment.')) {
+    return message;
+  }
+
+  return `${message}. If this is an existing demo tenant, run npm run repair:recruitment-access and rerun the smoke test.`;
 }
 
 function errorMessageFromUnknown(error) {
