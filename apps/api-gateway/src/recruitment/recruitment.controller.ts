@@ -14,10 +14,12 @@ import {
   DecideRecruitmentDto,
   ListRecruitmentQueryDto,
   MoveApplicationDto,
+  PublishRecruitmentPostingDto,
   ScheduleInterviewDto,
   SubmitInterviewFeedbackDto,
   UpdateCandidateDto,
   UpdateOfferDto,
+  UpdateRecruitmentPostingDto,
   UpdateRecruitmentApprovalRuleDto,
   UpdateRequisitionDto,
 } from './dto/recruitment.dto';
@@ -118,6 +120,26 @@ export class RecruitmentController {
     return this.recruitmentService.openRequisition(user, requisitionId);
   }
 
+  @Post('requisitions/:id/publish')
+  @RequirePermissions('recruitment.write')
+  @ApiOperation({ summary: 'Publish an open requisition to the tenant public careers board.' })
+  @ApiOkResponse({ description: 'Recruitment job posting published.' })
+  async publishRequisition(
+    @CurrentUser() user: AuthenticatedPrincipal,
+    @Param('id') requisitionId: string,
+    @Body() dto: PublishRecruitmentPostingDto,
+  ) {
+    return this.recruitmentService.publishRequisition(user, requisitionId, dto);
+  }
+
+  @Post('requisitions/:id/unpublish')
+  @RequirePermissions('recruitment.write')
+  @ApiOperation({ summary: 'Pause a public recruitment job posting.' })
+  @ApiOkResponse({ description: 'Recruitment job posting paused.' })
+  async unpublishRequisition(@CurrentUser() user: AuthenticatedPrincipal, @Param('id') requisitionId: string) {
+    return this.recruitmentService.unpublishRequisition(user, requisitionId);
+  }
+
   @Post('requisitions/:id/close')
   @RequirePermissions('recruitment.write')
   @ApiOperation({ summary: 'Close a recruitment requisition.' })
@@ -172,6 +194,26 @@ export class RecruitmentController {
   @ApiOkResponse({ description: 'Recruitment applications returned.' })
   async listApplications(@CurrentUser() user: AuthenticatedPrincipal, @Query() query: ListRecruitmentQueryDto) {
     return this.recruitmentService.listApplications(user, query);
+  }
+
+  @Get('postings')
+  @RequirePermissions('recruitment.read')
+  @ApiOperation({ summary: 'List recruitment job postings for internal hiring teams.' })
+  @ApiOkResponse({ description: 'Recruitment job postings returned.' })
+  async listJobPostings(@CurrentUser() user: AuthenticatedPrincipal, @Query() query: ListRecruitmentQueryDto) {
+    return this.recruitmentService.listJobPostings(user, query);
+  }
+
+  @Patch('postings/:id')
+  @RequirePermissions('recruitment.write')
+  @ApiOperation({ summary: 'Update a recruitment job posting.' })
+  @ApiOkResponse({ description: 'Recruitment job posting updated.' })
+  async updateJobPosting(
+    @CurrentUser() user: AuthenticatedPrincipal,
+    @Param('id') postingId: string,
+    @Body() dto: UpdateRecruitmentPostingDto,
+  ) {
+    return this.recruitmentService.updateJobPosting(user, postingId, dto);
   }
 
   @Get('applications/:id')

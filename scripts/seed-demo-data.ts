@@ -41,6 +41,7 @@ import {
   RecruitmentFeedbackRecommendation,
   RecruitmentInterviewStatus,
   RecruitmentOfferStatus,
+  RecruitmentPostingStatus,
   RecruitmentRequisitionStatus,
   RecruitmentStageType,
   RecruitmentWorkMode,
@@ -2166,6 +2167,36 @@ async function ensureRecruitmentDemoData(
     openedAt: new Date('2026-05-12T13:00:00.000Z'),
   });
 
+  await ensureRecruitmentJobPosting({
+    tenantId,
+    requisitionId: careReq.id,
+    slug: 'care-specialist-req-care-spec-2026',
+    title: 'Care Specialist',
+    summary: 'Join Acme Health Group as a care specialist supporting patient coordination, scheduling, and service follow-through.',
+    description: careReq.description ?? 'Support care operations with scheduling, patient coordination, and service follow-through.',
+    requirements: careReq.requirements ?? 'Customer care experience, scheduling literacy, and comfort working in healthcare operations.',
+    departmentName: careReq.departmentName ?? 'Care Coordination',
+    locationName: careReq.locationName ?? 'Chicago, IL',
+    employmentType: careReq.employmentType,
+    workMode: careReq.workMode,
+    salaryMinCents: careReq.salaryMinCents,
+    salaryMaxCents: careReq.salaryMaxCents,
+    currencyCode: careReq.currencyCode,
+    status: RecruitmentPostingStatus.PUBLISHED,
+    internalOnly: false,
+    publishedAt: new Date('2026-05-12T14:00:00.000Z'),
+    applyBy: new Date('2026-06-10T23:59:59.999Z'),
+    sourceLabel: 'Public careers site',
+    consentText: 'I certify that my application information is accurate and consent to Acme Health Group processing it for recruitment purposes.',
+    questionSet: {
+      questions: [
+        { id: 'healthcare_experience', label: 'Describe your healthcare or care coordination experience.', type: 'long_text', required: true },
+        { id: 'hybrid_availability', label: 'Can you work a hybrid schedule in Chicago?', type: 'yes_no', required: true },
+        { id: 'start_timing', label: 'What is your earliest available start date?', type: 'short_text', required: false },
+      ],
+    },
+  });
+
   const pendingReq = await ensureRecruitmentRequisition({
     tenantId,
     code: 'REQ-PEOPLE-OPS-2026',
@@ -3785,6 +3816,65 @@ async function ensureRecruitmentRequisition(data: {
   }
 
   return requisition;
+}
+
+async function ensureRecruitmentJobPosting(data: {
+  tenantId: string;
+  requisitionId: string;
+  slug: string;
+  title: string;
+  summary: string;
+  description: string;
+  requirements: string;
+  departmentName: string;
+  locationName: string;
+  employmentType: RecruitmentEmploymentType;
+  workMode: RecruitmentWorkMode;
+  salaryMinCents: number | null;
+  salaryMaxCents: number | null;
+  currencyCode: string;
+  status: RecruitmentPostingStatus;
+  internalOnly: boolean;
+  publishedAt: Date;
+  applyBy: Date;
+  sourceLabel: string;
+  consentText: string;
+  questionSet: Prisma.InputJsonObject;
+}) {
+  const payload = {
+    slug: data.slug,
+    title: data.title,
+    summary: data.summary,
+    description: data.description,
+    requirements: data.requirements,
+    departmentName: data.departmentName,
+    locationName: data.locationName,
+    employmentType: data.employmentType,
+    workMode: data.workMode,
+    salaryMinCents: data.salaryMinCents,
+    salaryMaxCents: data.salaryMaxCents,
+    currencyCode: data.currencyCode,
+    status: data.status,
+    internalOnly: data.internalOnly,
+    publishedAt: data.publishedAt,
+    expiresAt: null,
+    applyBy: data.applyBy,
+    sourceLabel: data.sourceLabel,
+    consentText: data.consentText,
+    questionSet: data.questionSet,
+    deletedAt: null,
+    metadata: { demo: true, source: 'recruitment.public_careers' },
+  };
+
+  return prisma.recruitmentJobPosting.upsert({
+    where: { requisitionId: data.requisitionId },
+    create: {
+      tenantId: data.tenantId,
+      requisitionId: data.requisitionId,
+      ...payload,
+    },
+    update: payload,
+  });
 }
 
 async function ensureRecruitmentCandidate(data: {

@@ -9,8 +9,10 @@ import {
   RecruitmentFeedbackRecommendation,
   RecruitmentInterviewStatus,
   RecruitmentOfferStatus,
+  RecruitmentPostingStatus,
   RecruitmentRequisitionStatus,
   RecruitmentStageType,
+  TenantFeatureStatus,
   RecruitmentWorkMode,
   TimelineEventType,
   WorkflowStatus,
@@ -35,10 +37,14 @@ import {
   DecideRecruitmentDto,
   ListRecruitmentQueryDto,
   MoveApplicationDto,
+  PublicCareerQueryDto,
+  PublicJobApplicationDto,
+  PublishRecruitmentPostingDto,
   ScheduleInterviewDto,
   SubmitInterviewFeedbackDto,
   UpdateCandidateDto,
   UpdateOfferDto,
+  UpdateRecruitmentPostingDto,
   UpdateRecruitmentApprovalRuleDto,
   UpdateRequisitionDto,
 } from './dto/recruitment.dto';
@@ -435,6 +441,381 @@ export class RecruitmentService {
       this.enqueueOutbox(this.prisma, tenantId, 'recruitment.requisition.closed', 'RecruitmentRequisition', updated.id, this.requisitionState(updated)),
     ]);
     return updated;
+  }
+
+  async listJobPostings(actor: AuthenticatedPrincipal, query: ListRecruitmentQueryDto) {
+    const tenantId = this.requireTenant(actor);
+    const limit = query.limit ?? 50;
+    const status = this.enumValue(RecruitmentPostingStatus, query.status);
+    const rows = await this.prisma.recruitmentJobPosting.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        status,
+        requisitionId: query.requisitionId,
+        OR: query.search
+          ? [
+              { slug: { contains: query.search, mode: 'insensitive' } },
+              { title: { contains: query.search, mode: 'insensitive' } },
+              { summary: { contains: query.search, mode: 'insensitive' } },
+              { departmentName: { contains: query.search, mode: 'insensitive' } },
+              { locationName: { contains: query.search, mode: 'insensitive' } },
+              { requisition: { code: { contains: query.search, mode: 'insensitive' } } },
+            ]
+          : undefined,
+      },
+      take: limit + 1,
+      cursor: query.cursor ? { id: query.cursor } : undefined,
+      skip: query.cursor ? 1 : 0,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      include: this.jobPostingInclude,
+    });
+
+    return this.paginate(rows, limit);
+  }
+
+  async publishRequisition(actor: AuthenticatedPrincipal, requisitionId: string, dto: PublishRecruitmentPostingDto) {
+    const tenantId = this.requireTenant(actor);
+    const requisition = await this.findRequisitionOrThrow(tenantId, requisitionId);
+
+    if (requisition.status !== RecruitmentRequisitionStatus.OPEN) {
+      throw new BadRequestException('Only open requisitions can be published to the public careers board.');
+    }
+
+    const existing = await this.prisma.recruitmentJobPosting.findUnique({
+      where: { requisitionId: requisition.id },
+    });
+    const slug = await this.resolveUniquePostingSlug(
+      tenantId,
+      dto.slug ?? `${requisition.title}-${requisition.code}`,
+      existing?.id,
+    );
+    const status = dto.status ?? RecruitmentPostingStatus.PUBLISHED;
+    const now = new Date();
+    const posting = await this.prisma.recruitmentJobPosting.upsert({
+      where: { requisitionId: requisition.id },
+      create: {
+        tenant: { connect: { id: tenantId } },
+        requisition: { connect: { id: requisition.id } },
+        slug,
+        title: dto.title?.trim() || requisition.title,
+        summary: dto.summary?.trim() ?? this.defaultPostingSummary(requisition),
+        description: dto.description?.trim() ?? requisition.description,
+        requirements: dto.requirements?.trim() ?? requisition.requirements,
+        departmentName: requisition.departmentName,
+        locationName: requisition.locationName,
+        employmentType: requisition.employmentType,
+        workMode: requisition.workMode,
+        salaryMinCents: requisition.salaryMinCents,
+        salaryMaxCents: requisition.salaryMaxCents,
+        currencyCode: requisition.currencyCode,
+        status,
+        internalOnly: dto.internalOnly ?? false,
+        publishedAt: status === RecruitmentPostingStatus.PUBLISHED ? now : undefined,
+        expiresAt: dto.expiresAt ? this.toDate(dto.expiresAt) : undefined,
+        applyBy: dto.applyBy ? this.toDate(dto.applyBy) : undefined,
+        questionSet: this.toJson(dto.questionSet),
+        consentText: dto.consentText?.trim() ?? this.defaultConsentText(),
+        sourceLabel: dto.sourceLabel?.trim() ?? 'Public careers site',
+        metadata: this.toJson(dto.metadata),
+      },
+      update: {
+        slug,
+        title: dto.title?.trim() || requisition.title,
+        summary: dto.summary?.trim() ?? this.defaultPostingSummary(requisition),
+        description: dto.description?.trim() ?? requisition.description,
+        requirements: dto.requirements?.trim() ?? requisition.requirements,
+        departmentName: requisition.departmentName,
+        locationName: requisition.locationName,
+        employmentType: requisition.employmentType,
+        workMode: requisition.workMode,
+        salaryMinCents: requisition.salaryMinCents,
+        salaryMaxCents: requisition.salaryMaxCents,
+        currencyCode: requisition.currencyCode,
+        status,
+        internalOnly: dto.internalOnly ?? existing?.internalOnly ?? false,
+        publishedAt: status === RecruitmentPostingStatus.PUBLISHED ? existing?.publishedAt ?? now : existing?.publishedAt,
+        expiresAt: dto.expiresAt ? this.toDate(dto.expiresAt) : null,
+        applyBy: dto.applyBy ? this.toDate(dto.applyBy) : null,
+        questionSet: this.toJson(dto.questionSet),
+        consentText: dto.consentText?.trim() ?? existing?.consentText ?? this.defaultConsentText(),
+        sourceLabel: dto.sourceLabel?.trim() ?? existing?.sourceLabel ?? 'Public careers site',
+        metadata: this.mergeJsonObject(existing?.metadata, dto.metadata ?? {}),
+        deletedAt: null,
+      },
+      include: this.jobPostingInclude,
+    });
+
+    await Promise.all([
+      this.writeAudit(this.prisma, actor, tenantId, existing ? AuditAction.UPDATE : AuditAction.CREATE, 'RecruitmentJobPosting', posting.id, existing ? this.postingState(existing) : null, this.postingState(posting)),
+      this.writeTimeline(this.prisma, actor, tenantId, TimelineEventType.SYSTEM, 'Recruitment posting published', posting.title, 'RecruitmentJobPosting', posting.id, {
+        postingId: posting.id,
+        requisitionId: requisition.id,
+        slug: posting.slug,
+        status: posting.status,
+      }),
+      this.enqueueOutbox(this.prisma, tenantId, 'recruitment.posting.published', 'RecruitmentJobPosting', posting.id, this.postingState(posting)),
+    ]);
+
+    return posting;
+  }
+
+  async updateJobPosting(actor: AuthenticatedPrincipal, postingId: string, dto: UpdateRecruitmentPostingDto) {
+    const tenantId = this.requireTenant(actor);
+    const before = await this.prisma.recruitmentJobPosting.findFirst({
+      where: { id: postingId, tenantId, deletedAt: null },
+    });
+    if (!before) throw new NotFoundException('Recruitment job posting not found.');
+
+    const slug = dto.slug ? await this.resolveUniquePostingSlug(tenantId, dto.slug, before.id) : before.slug;
+    const updated = await this.prisma.recruitmentJobPosting.update({
+      where: { id: before.id },
+      data: {
+        slug,
+        title: dto.title?.trim(),
+        summary: dto.summary?.trim(),
+        description: dto.description?.trim(),
+        requirements: dto.requirements?.trim(),
+        status: dto.status,
+        internalOnly: dto.internalOnly,
+        publishedAt: dto.status === RecruitmentPostingStatus.PUBLISHED && !before.publishedAt ? new Date() : undefined,
+        expiresAt: dto.expiresAt ? this.toDate(dto.expiresAt) : undefined,
+        applyBy: dto.applyBy ? this.toDate(dto.applyBy) : undefined,
+        questionSet: this.toJson(dto.questionSet),
+        consentText: dto.consentText?.trim(),
+        sourceLabel: dto.sourceLabel?.trim(),
+        metadata: dto.metadata === undefined ? undefined : this.mergeJsonObject(before.metadata, dto.metadata),
+      },
+      include: this.jobPostingInclude,
+    });
+
+    await Promise.all([
+      this.writeAudit(this.prisma, actor, tenantId, AuditAction.UPDATE, 'RecruitmentJobPosting', updated.id, this.postingState(before), this.postingState(updated)),
+      this.enqueueOutbox(this.prisma, tenantId, 'recruitment.posting.updated', 'RecruitmentJobPosting', updated.id, this.postingState(updated)),
+    ]);
+    return updated;
+  }
+
+  async unpublishRequisition(actor: AuthenticatedPrincipal, requisitionId: string) {
+    const tenantId = this.requireTenant(actor);
+    const posting = await this.prisma.recruitmentJobPosting.findFirst({
+      where: { tenantId, requisitionId, deletedAt: null },
+    });
+    if (!posting) throw new NotFoundException('Recruitment job posting not found.');
+
+    const updated = await this.prisma.recruitmentJobPosting.update({
+      where: { id: posting.id },
+      data: { status: RecruitmentPostingStatus.PAUSED },
+      include: this.jobPostingInclude,
+    });
+
+    await Promise.all([
+      this.writeAudit(this.prisma, actor, tenantId, AuditAction.DISABLE, 'RecruitmentJobPosting', updated.id, this.postingState(posting), this.postingState(updated)),
+      this.writeTimeline(this.prisma, actor, tenantId, TimelineEventType.SYSTEM, 'Recruitment posting paused', updated.title, 'RecruitmentJobPosting', updated.id, {
+        postingId: updated.id,
+        requisitionId,
+      }),
+      this.enqueueOutbox(this.prisma, tenantId, 'recruitment.posting.paused', 'RecruitmentJobPosting', updated.id, this.postingState(updated)),
+    ]);
+    return updated;
+  }
+
+  async getPublicCareersBoard(tenantSlug: string, query: PublicCareerQueryDto) {
+    const tenant = await this.findPublicCareersTenant(tenantSlug);
+    const limit = query.limit ?? 50;
+    const now = new Date();
+    const workMode = this.enumValue(RecruitmentWorkMode, query.workMode);
+    const employmentType = this.enumValue(RecruitmentEmploymentType, query.employmentType);
+
+    const where: Prisma.RecruitmentJobPostingWhereInput = {
+      tenantId: tenant.id,
+      status: RecruitmentPostingStatus.PUBLISHED,
+      internalOnly: false,
+      deletedAt: null,
+      workMode,
+      employmentType,
+      OR: [
+        { expiresAt: null },
+        { expiresAt: { gte: now } },
+      ],
+      AND: [
+        { OR: [{ applyBy: null }, { applyBy: { gte: now } }] },
+        { requisition: { status: RecruitmentRequisitionStatus.OPEN, deletedAt: null } },
+        ...(query.search
+          ? [{
+              OR: [
+                { title: { contains: query.search, mode: 'insensitive' as const } },
+                { summary: { contains: query.search, mode: 'insensitive' as const } },
+                { departmentName: { contains: query.search, mode: 'insensitive' as const } },
+                { locationName: { contains: query.search, mode: 'insensitive' as const } },
+                { requisition: { code: { contains: query.search, mode: 'insensitive' as const } } },
+              ],
+            }]
+          : []),
+      ],
+    };
+
+    const [jobs, total] = await Promise.all([
+      this.prisma.recruitmentJobPosting.findMany({
+        where,
+        take: limit,
+        orderBy: [{ publishedAt: 'desc' }, { updatedAt: 'desc' }],
+        include: this.publicPostingInclude,
+      }),
+      this.prisma.recruitmentJobPosting.count({ where }),
+    ]);
+
+    return {
+      tenant: this.publicTenantState(tenant),
+      data: jobs.map((job) => this.publicJobSummary(job)),
+      page: { limit, total },
+    };
+  }
+
+  async getPublicJob(tenantSlug: string, jobSlug: string) {
+    const tenant = await this.findPublicCareersTenant(tenantSlug);
+    const posting = await this.findPublicPostingOrThrow(tenant.id, jobSlug);
+    return {
+      tenant: this.publicTenantState(tenant),
+      job: this.publicJobDetail(posting),
+    };
+  }
+
+  async applyToPublicJob(tenantSlug: string, jobSlug: string, dto: PublicJobApplicationDto) {
+    if (!dto.consentAccepted) {
+      throw new BadRequestException('Candidate consent is required before submitting an application.');
+    }
+
+    const tenant = await this.findPublicCareersTenant(tenantSlug);
+    const posting = await this.findPublicPostingOrThrow(tenant.id, jobSlug);
+    const now = new Date();
+
+    if (posting.applyBy && posting.applyBy < now) {
+      throw new BadRequestException('This job posting is no longer accepting applications.');
+    }
+
+    const email = dto.email.trim().toLowerCase();
+    const candidateBefore = await this.prisma.recruitmentCandidate.findUnique({
+      where: { tenantId_email: { tenantId: tenant.id, email } },
+    });
+    const candidate = await this.prisma.recruitmentCandidate.upsert({
+      where: { tenantId_email: { tenantId: tenant.id, email } },
+      create: {
+        tenant: { connect: { id: tenant.id } },
+        firstName: dto.firstName.trim(),
+        lastName: dto.lastName.trim(),
+        email,
+        phone: dto.phone?.trim(),
+        source: dto.source?.trim() || posting.sourceLabel || 'Public careers site',
+        status: RecruitmentCandidateStatus.ACTIVE,
+        currentEmployer: dto.currentEmployer?.trim(),
+        currentTitle: dto.currentTitle?.trim(),
+        locationName: dto.locationName?.trim(),
+        resumeUrl: dto.resumeUrl,
+        tags: ['public-applicant'],
+        metadata: this.toJson({
+          publicProfile: {
+            consentAccepted: dto.consentAccepted,
+            availabilityNote: dto.availabilityNote,
+            lastAppliedAt: now.toISOString(),
+          },
+          ...dto.metadata,
+        }),
+      },
+      update: {
+        firstName: dto.firstName.trim(),
+        lastName: dto.lastName.trim(),
+        phone: dto.phone?.trim(),
+        source: dto.source?.trim() || posting.sourceLabel || 'Public careers site',
+        currentEmployer: dto.currentEmployer?.trim(),
+        currentTitle: dto.currentTitle?.trim(),
+        locationName: dto.locationName?.trim(),
+        resumeUrl: dto.resumeUrl,
+        tags: { push: 'public-applicant' },
+        metadata: this.mergeJsonObject(undefined, {
+          publicProfile: {
+            consentAccepted: dto.consentAccepted,
+            availabilityNote: dto.availabilityNote,
+            lastAppliedAt: now.toISOString(),
+          },
+          ...dto.metadata,
+        }),
+        deletedAt: null,
+      },
+    });
+
+    const existingApplication = await this.prisma.recruitmentApplication.findFirst({
+      where: {
+        tenantId: tenant.id,
+        candidateId: candidate.id,
+        requisitionId: posting.requisitionId,
+        deletedAt: null,
+      },
+      include: this.applicationInclude,
+    });
+
+    if (existingApplication) {
+      return {
+        received: true,
+        alreadyApplied: true,
+        application: this.publicApplicationReceipt(existingApplication),
+        job: this.publicJobSummary(posting),
+      };
+    }
+
+    const stage = await this.ensurePipelineStage(tenant.id, posting.requisitionId, RecruitmentStageType.APPLIED);
+    const application = await this.prisma.recruitmentApplication.create({
+      data: {
+        tenant: { connect: { id: tenant.id } },
+        candidate: { connect: { id: candidate.id } },
+        requisition: { connect: { id: posting.requisitionId } },
+        currentStage: { connect: { id: stage.id } },
+        status: RecruitmentApplicationStatus.APPLIED,
+        source: dto.source?.trim() || posting.sourceLabel || 'Public careers site',
+        appliedAt: now,
+        lastActivityAt: now,
+        metadata: this.toJson({
+          source: 'public_careers',
+          postingId: posting.id,
+          postingSlug: posting.slug,
+          tenantSlug,
+          availabilityNote: dto.availabilityNote,
+          consentAccepted: dto.consentAccepted,
+          answers: dto.answers ?? {},
+          ...dto.metadata,
+        }),
+      },
+      include: this.applicationInclude,
+    });
+
+    await Promise.all([
+      this.writeAudit(
+        this.prisma,
+        null,
+        tenant.id,
+        candidateBefore ? AuditAction.UPDATE : AuditAction.CREATE,
+        'RecruitmentCandidate',
+        candidate.id,
+        candidateBefore ? this.candidateState(candidateBefore) : null,
+        this.candidateState(candidate),
+      ),
+      this.writeAudit(this.prisma, null, tenant.id, AuditAction.CREATE, 'RecruitmentApplication', application.id, null, this.applicationState(application)),
+      this.writeTimeline(this.prisma, null, tenant.id, TimelineEventType.RECRUITMENT_CANDIDATE_APPLIED, 'Candidate applied from careers site', `${candidate.firstName} ${candidate.lastName} applied to ${posting.title}`, 'RecruitmentApplication', application.id, {
+        applicationId: application.id,
+        candidateId: candidate.id,
+        requisitionId: posting.requisitionId,
+        postingId: posting.id,
+        source: application.source,
+      }),
+      this.enqueueOutbox(this.prisma, tenant.id, 'recruitment.public_application.received', 'RecruitmentApplication', application.id, this.applicationState(application)),
+    ]);
+
+    return {
+      received: true,
+      alreadyApplied: false,
+      application: this.publicApplicationReceipt(application),
+      job: this.publicJobSummary(posting),
+    };
   }
 
   async listCandidates(actor: AuthenticatedPrincipal, query: ListRecruitmentQueryDto) {
@@ -1152,6 +1533,252 @@ export class RecruitmentService {
     };
   }
 
+  private async findPublicCareersTenant(tenantSlug: string) {
+    const normalizedSlug = tenantSlug.trim().toLowerCase();
+    const tenant = await this.prisma.tenant.findFirst({
+      where: {
+        slug: normalizedSlug,
+        deletedAt: null,
+        features: {
+          some: {
+            status: { in: [TenantFeatureStatus.ENABLED, TenantFeatureStatus.BETA, TenantFeatureStatus.TRIAL] },
+            platformFeature: { code: 'RECRUITMENT', isActive: true },
+          },
+        },
+      },
+      include: { branding: true },
+    });
+
+    if (!tenant) {
+      throw new NotFoundException('Public careers board not found.');
+    }
+
+    return tenant;
+  }
+
+  private async findPublicPostingOrThrow(tenantId: string, jobSlug: string) {
+    const now = new Date();
+    const posting = await this.prisma.recruitmentJobPosting.findFirst({
+      where: {
+        tenantId,
+        slug: this.slugify(jobSlug),
+        status: RecruitmentPostingStatus.PUBLISHED,
+        internalOnly: false,
+        deletedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gte: now } }],
+        AND: [
+          { OR: [{ applyBy: null }, { applyBy: { gte: now } }] },
+          { requisition: { status: RecruitmentRequisitionStatus.OPEN, deletedAt: null } },
+        ],
+      },
+      include: this.publicPostingInclude,
+    });
+
+    if (!posting) {
+      throw new NotFoundException('Public job posting not found.');
+    }
+
+    return posting;
+  }
+
+  private async resolveUniquePostingSlug(tenantId: string, value: string, currentPostingId?: string) {
+    const base = this.slugify(value) || 'job';
+    let candidate = base;
+    let suffix = 2;
+
+    while (await this.prisma.recruitmentJobPosting.findFirst({
+      where: {
+        tenantId,
+        slug: candidate,
+        id: currentPostingId ? { not: currentPostingId } : undefined,
+      },
+      select: { id: true },
+    })) {
+      candidate = `${base}-${suffix}`;
+      suffix += 1;
+    }
+
+    return candidate;
+  }
+
+  private publicTenantState(tenant: {
+    id: string;
+    name: string;
+    slug: string;
+    industry?: string | null;
+    website?: string | null;
+    supportEmail?: string | null;
+    supportPhone?: string | null;
+    branding?: {
+      logoUrl?: string | null;
+      primaryColor?: string | null;
+      secondaryColor?: string | null;
+      accentColor?: string | null;
+    } | null;
+  }) {
+    return {
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      industry: tenant.industry,
+      website: tenant.website,
+      supportEmail: tenant.supportEmail,
+      supportPhone: tenant.supportPhone,
+      branding: tenant.branding,
+    };
+  }
+
+  private publicJobSummary(posting: {
+    id: string;
+    slug: string;
+    title: string;
+    summary?: string | null;
+    departmentName?: string | null;
+    locationName?: string | null;
+    employmentType?: RecruitmentEmploymentType | null;
+    workMode?: RecruitmentWorkMode | null;
+    salaryMinCents?: number | null;
+    salaryMaxCents?: number | null;
+    currencyCode: string;
+    publishedAt?: Date | null;
+    applyBy?: Date | null;
+    sourceLabel?: string | null;
+    requisition: {
+      id: string;
+      code: string;
+      headcount: number;
+      _count?: { applications: number };
+    };
+  }) {
+    return {
+      id: posting.id,
+      slug: posting.slug,
+      title: posting.title,
+      summary: posting.summary,
+      departmentName: posting.departmentName,
+      locationName: posting.locationName,
+      employmentType: posting.employmentType,
+      workMode: posting.workMode,
+      salaryMinCents: posting.salaryMinCents,
+      salaryMaxCents: posting.salaryMaxCents,
+      currencyCode: posting.currencyCode,
+      publishedAt: posting.publishedAt,
+      applyBy: posting.applyBy,
+      sourceLabel: posting.sourceLabel,
+      requisition: {
+        id: posting.requisition.id,
+        code: posting.requisition.code,
+        headcount: posting.requisition.headcount,
+        applications: posting.requisition._count?.applications ?? 0,
+      },
+    };
+  }
+
+  private publicJobDetail(posting: {
+    id: string;
+    slug: string;
+    title: string;
+    summary?: string | null;
+    description?: string | null;
+    requirements?: string | null;
+    departmentName?: string | null;
+    locationName?: string | null;
+    employmentType?: RecruitmentEmploymentType | null;
+    workMode?: RecruitmentWorkMode | null;
+    salaryMinCents?: number | null;
+    salaryMaxCents?: number | null;
+    currencyCode: string;
+    publishedAt?: Date | null;
+    applyBy?: Date | null;
+    sourceLabel?: string | null;
+    questionSet?: Prisma.JsonValue | null;
+    consentText?: string | null;
+    requisition: {
+      id: string;
+      code: string;
+      headcount: number;
+      _count?: { applications: number };
+    };
+  }) {
+    return {
+      ...this.publicJobSummary(posting),
+      description: posting.description,
+      requirements: posting.requirements,
+      questionSet: posting.questionSet,
+      consentText: posting.consentText ?? this.defaultConsentText(),
+    };
+  }
+
+  private publicApplicationReceipt(application: RecruitmentApplication & {
+    candidate?: { firstName: string; lastName: string; email: string } | null;
+    currentStage?: { name: string; type: RecruitmentStageType } | null;
+  }) {
+    return {
+      id: application.id,
+      status: application.status,
+      appliedAt: application.appliedAt,
+      currentStage: application.currentStage ? {
+        name: application.currentStage.name,
+        type: application.currentStage.type,
+      } : null,
+      candidate: application.candidate ? {
+        firstName: application.candidate.firstName,
+        lastName: application.candidate.lastName,
+        email: application.candidate.email,
+      } : null,
+    };
+  }
+
+  private postingState(row: {
+    id: string;
+    requisitionId: string;
+    slug: string;
+    title: string;
+    status: RecruitmentPostingStatus;
+    internalOnly: boolean;
+    publishedAt?: Date | null;
+    expiresAt?: Date | null;
+    applyBy?: Date | null;
+  }): Prisma.InputJsonObject {
+    return {
+      id: row.id,
+      requisitionId: row.requisitionId,
+      slug: row.slug,
+      title: row.title,
+      status: row.status,
+      internalOnly: row.internalOnly,
+      publishedAt: row.publishedAt?.toISOString() ?? null,
+      expiresAt: row.expiresAt?.toISOString() ?? null,
+      applyBy: row.applyBy?.toISOString() ?? null,
+    };
+  }
+
+  private defaultPostingSummary(requisition: Pick<RecruitmentRequisition, 'departmentName' | 'locationName' | 'employmentType' | 'workMode'>) {
+    return [
+      requisition.departmentName,
+      requisition.locationName,
+      this.humanizeText(requisition.employmentType),
+      this.humanizeText(requisition.workMode),
+    ].filter(Boolean).join(' · ');
+  }
+
+  private defaultConsentText() {
+    return 'I certify that the information I provide is accurate and consent to TimeSync and this employer processing my application for recruitment purposes.';
+  }
+
+  private slugify(value: string) {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 140);
+  }
+
+  private humanizeText(value: string) {
+    return value.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
   private approvalRuleCreateData(tenantId: string, dto: CreateRecruitmentApprovalRuleDto): Prisma.RecruitmentApprovalRuleCreateInput {
     return {
       tenant: { connect: { id: tenantId } },
@@ -1607,7 +2234,7 @@ export class RecruitmentService {
 
   private async writeAudit(
     client: Prisma.TransactionClient | PrismaService,
-    actor: AuthenticatedPrincipal,
+    actor: AuthenticatedPrincipal | null,
     tenantId: string,
     action: AuditAction,
     entityType: string,
@@ -1618,7 +2245,7 @@ export class RecruitmentService {
     await client.auditLog.create({
       data: {
         tenantId,
-        actorUserId: actor.id,
+        actorUserId: actor?.id,
         action,
         module: 'recruitment',
         entityType,
@@ -1631,7 +2258,7 @@ export class RecruitmentService {
 
   private async writeTimeline(
     client: Prisma.TransactionClient | PrismaService,
-    actor: AuthenticatedPrincipal,
+    actor: AuthenticatedPrincipal | null,
     tenantId: string,
     type: TimelineEventType,
     title: string,
@@ -1643,7 +2270,7 @@ export class RecruitmentService {
     await client.timelineEvent.create({
       data: {
         tenantId,
-        actorUserId: actor.id,
+        actorUserId: actor?.id,
         type,
         title,
         description,
@@ -1774,13 +2401,40 @@ export class RecruitmentService {
     hiringManager: { include: { person: true } },
     recruiter: { include: { person: true } },
     approvalRequest: { include: this.approvalRequestInclude },
+    jobPosting: true,
     stages: { orderBy: [{ sequence: 'asc' as const }] },
     _count: { select: { applications: true } },
   } satisfies Prisma.RecruitmentRequisitionInclude;
 
+  private readonly jobPostingInclude = {
+    requisition: {
+      include: {
+        position: true,
+        hiringManager: { include: { person: true } },
+        recruiter: { include: { person: true } },
+        approvalRequest: { include: this.approvalRequestInclude },
+        stages: { orderBy: [{ sequence: 'asc' as const }] },
+        _count: { select: { applications: true } },
+      },
+    },
+  } satisfies Prisma.RecruitmentJobPostingInclude;
+
+  private readonly publicPostingInclude = {
+    requisition: {
+      select: {
+        id: true,
+        code: true,
+        headcount: true,
+        status: true,
+        openedAt: true,
+        _count: { select: { applications: true } },
+      },
+    },
+  } satisfies Prisma.RecruitmentJobPostingInclude;
+
   private readonly applicationInclude = {
     candidate: true,
-    requisition: { include: { position: true, hiringManager: { include: { person: true } }, recruiter: { include: { person: true } }, stages: { orderBy: [{ sequence: 'asc' as const }] } } },
+    requisition: { include: { position: true, hiringManager: { include: { person: true } }, recruiter: { include: { person: true } }, jobPosting: true, stages: { orderBy: [{ sequence: 'asc' as const }] } } },
     currentStage: true,
     interviews: { orderBy: [{ scheduledStartAt: 'desc' as const }], take: 3 },
     offers: { orderBy: [{ createdAt: 'desc' as const }], take: 3 },
@@ -1802,6 +2456,7 @@ export class RecruitmentService {
     hiringManager: { include: { person: true } },
     recruiter: { include: { person: true } },
     approvalRequest: { include: this.approvalRequestInclude },
+    jobPosting: true,
     stages: { orderBy: [{ sequence: 'asc' as const }] },
     applications: {
       orderBy: [{ lastActivityAt: 'desc' as const }],
@@ -1819,7 +2474,7 @@ export class RecruitmentService {
     applications: {
       orderBy: [{ lastActivityAt: 'desc' as const }],
       include: {
-        requisition: { include: { position: true, stages: { orderBy: [{ sequence: 'asc' as const }] } } },
+        requisition: { include: { position: true, jobPosting: true, stages: { orderBy: [{ sequence: 'asc' as const }] } } },
         currentStage: true,
         interviews: {
           orderBy: [{ scheduledStartAt: 'desc' as const }],
@@ -1846,6 +2501,7 @@ export class RecruitmentService {
         hiringManager: { include: { person: true } },
         recruiter: { include: { person: true } },
         approvalRequest: { include: this.approvalRequestInclude },
+        jobPosting: true,
         stages: { orderBy: [{ sequence: 'asc' as const }] },
       },
     },
@@ -1867,7 +2523,7 @@ export class RecruitmentService {
     application: {
       include: {
         candidate: true,
-        requisition: { include: { position: true, stages: { orderBy: [{ sequence: 'asc' as const }] } } },
+        requisition: { include: { position: true, jobPosting: true, stages: { orderBy: [{ sequence: 'asc' as const }] } } },
         currentStage: true,
         offers: { orderBy: [{ createdAt: 'desc' as const }], take: 5 },
       },
@@ -1885,6 +2541,7 @@ export class RecruitmentService {
             position: true,
             hiringManager: { include: { person: true } },
             recruiter: { include: { person: true } },
+            jobPosting: true,
             stages: { orderBy: [{ sequence: 'asc' as const }] },
           },
         },

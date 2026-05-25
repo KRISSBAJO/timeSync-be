@@ -10,6 +10,7 @@ const password = process.env.RECRUITMENT_SMOKE_PASSWORD || process.env.SMOKE_PAS
 const timeoutMs = Number(process.env.RECRUITMENT_SMOKE_TIMEOUT_MS || process.env.SMOKE_TIMEOUT_MS || 10000);
 
 const steps = [];
+const publicJobSlug = process.env.RECRUITMENT_SMOKE_PUBLIC_JOB_SLUG || 'care-specialist-req-care-spec-2026';
 
 const adminRecruitmentEndpoints = [
   objectEndpoint('/api/v1/recruitment/summary', 'recruitment summary'),
@@ -37,6 +38,8 @@ const employeeForbiddenEndpoints = [
 ];
 
 const frontendPages = [
+  `/careers/${tenantSlug}`,
+  `/careers/${tenantSlug}/jobs/${publicJobSlug}`,
   '/recruitment',
   '/recruitment?tab=requisitions',
   '/recruitment?tab=candidates',
@@ -46,7 +49,9 @@ const frontendPages = [
 ];
 
 async function main() {
-  await smokeFetch({ label: 'public', cookieJar: new Map() }, '/health/live', { method: 'GET' }, 200, 'health live');
+  const publicSession = { label: 'public', cookieJar: new Map() };
+  await smokeFetch(publicSession, '/health/live', { method: 'GET' }, 200, 'health live');
+  await runPublicCareersSmoke(publicSession);
 
   const admin = await login('tenant-admin', adminEmail);
   await smokeFetch(admin, '/api/v1/auth/me', { method: 'GET' }, 200, 'admin auth context', expectObject);
@@ -74,6 +79,52 @@ async function main() {
     console.log(`Recruitment frontend page smoke passed against ${trimTrailingSlash(frontendBaseUrl)}.`);
   }
   console.table(steps);
+}
+
+async function runPublicCareersSmoke(session) {
+  await smokeFetch(
+    session,
+    `/api/v1/careers/${tenantSlug}`,
+    { method: 'GET' },
+    200,
+    'public careers board',
+    expectCareersBoard,
+  );
+  await smokeFetch(
+    session,
+    `/api/v1/careers/${tenantSlug}/jobs/${publicJobSlug}`,
+    { method: 'GET' },
+    200,
+    'public job detail',
+    expectPublicJobDetail,
+  );
+  await smokeFetch(
+    session,
+    `/api/v1/careers/${tenantSlug}/jobs/${publicJobSlug}/apply`,
+    {
+      method: 'POST',
+      body: {
+        firstName: 'Smoke',
+        lastName: 'Applicant',
+        email: `smoke.public.${Date.now()}@example.test`,
+        phone: '+1-312-555-0199',
+        currentEmployer: 'Smoke Test Clinic',
+        currentTitle: 'Care Coordinator',
+        locationName: 'Chicago, IL',
+        resumeUrl: 'https://example.test/smoke-resume.pdf',
+        source: 'Smoke test',
+        availabilityNote: 'Available for validation immediately.',
+        consentAccepted: true,
+        answers: {
+          healthcare_experience: 'Smoke validation candidate.',
+          hybrid_availability: 'yes',
+        },
+      },
+    },
+    200,
+    'public application intake',
+    expectPublicApplicationReceipt,
+  );
 }
 
 async function login(label, email) {
@@ -354,6 +405,30 @@ function expectRecruitmentDetail(body) {
 
   if (!isRecord(payload) || !isRecord(payload.record) || !Array.isArray(payload.timeline) || !Array.isArray(payload.audit)) {
     throw new Error('Expected recruitment detail with record, timeline, and audit arrays.');
+  }
+}
+
+function expectCareersBoard(body) {
+  const payload = unwrapData(body);
+
+  if (!isRecord(payload) || !isRecord(payload.tenant) || !Array.isArray(payload.data)) {
+    throw new Error('Expected public careers board with tenant and data array.');
+  }
+}
+
+function expectPublicJobDetail(body) {
+  const payload = unwrapData(body);
+
+  if (!isRecord(payload) || !isRecord(payload.tenant) || !isRecord(payload.job) || typeof payload.job.slug !== 'string') {
+    throw new Error('Expected public job detail with tenant and job payload.');
+  }
+}
+
+function expectPublicApplicationReceipt(body) {
+  const payload = unwrapData(body);
+
+  if (!isRecord(payload) || payload.received !== true || !isRecord(payload.application)) {
+    throw new Error('Expected public application receipt.');
   }
 }
 

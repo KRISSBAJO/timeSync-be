@@ -8,6 +8,7 @@ import {
   RecruitmentFeedbackRecommendation,
   RecruitmentInterviewStatus,
   RecruitmentOfferStatus,
+  RecruitmentPostingStatus,
   RecruitmentRequisitionStatus,
   RecruitmentStageType,
   RecruitmentWorkMode,
@@ -15,6 +16,7 @@ import {
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -304,6 +306,185 @@ export class CreateRequisitionDto {
 }
 
 export class UpdateRequisitionDto extends PartialType(CreateRequisitionDto) {}
+
+export class PublishRecruitmentPostingDto {
+  @ApiPropertyOptional({ example: 'care-specialist-req-care-spec-2026' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(140)
+  slug?: string;
+
+  @ApiPropertyOptional({ example: 'Care Specialist' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  title?: string;
+
+  @ApiPropertyOptional({ example: 'Join the care team supporting patient intake and daily operations.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(700)
+  summary?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(7000)
+  description?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(7000)
+  requirements?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  expiresAt?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  applyBy?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  internalOnly?: boolean;
+
+  @ApiPropertyOptional({ enum: RecruitmentPostingStatus })
+  @IsOptional()
+  @IsEnum(RecruitmentPostingStatus)
+  status?: RecruitmentPostingStatus;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  questionSet?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  consentText?: string;
+
+  @ApiPropertyOptional({ example: 'Public careers site' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  sourceLabel?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+export class UpdateRecruitmentPostingDto extends PartialType(PublishRecruitmentPostingDto) {}
+
+export class PublicCareerQueryDto {
+  @ApiPropertyOptional({ example: 50, default: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @ApiPropertyOptional({ example: 'care specialist' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  search?: string;
+
+  @ApiPropertyOptional({ example: 'remote' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  workMode?: string;
+
+  @ApiPropertyOptional({ example: 'full time' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  employmentType?: string;
+}
+
+export class PublicJobApplicationDto {
+  @ApiProperty({ example: 'Maya' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  firstName!: string;
+
+  @ApiProperty({ example: 'Johnson' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  lastName!: string;
+
+  @ApiProperty({ example: 'maya.johnson@example.com' })
+  @IsEmail()
+  @MaxLength(240)
+  email!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  phone?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  currentEmployer?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  currentTitle?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  locationName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  @MaxLength(1000)
+  resumeUrl?: string;
+
+  @ApiPropertyOptional({ example: 'LinkedIn' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  source?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  availabilityNote?: string;
+
+  @ApiProperty()
+  @IsBoolean()
+  consentAccepted!: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  answers?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
 
 export class DecideRecruitmentDto {
   @ApiPropertyOptional()

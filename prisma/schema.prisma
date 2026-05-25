@@ -894,6 +894,14 @@ enum RecruitmentOfferStatus {
   WITHDRAWN
 }
 
+enum RecruitmentPostingStatus {
+  DRAFT
+  PUBLISHED
+  PAUSED
+  CLOSED
+  ARCHIVED
+}
+
 enum AttendancePolicyStatus {
   DRAFT
   ACTIVE
@@ -1415,6 +1423,7 @@ model Tenant {
   leaveLedgerEntries             LeaveLedgerEntry[]
   leaveRequests                  LeaveRequest[]
   recruitmentRequisitions        RecruitmentRequisition[]
+  recruitmentJobPostings         RecruitmentJobPosting[]
   recruitmentCandidates          RecruitmentCandidate[]
   recruitmentPipelineStages      RecruitmentPipelineStage[]
   recruitmentApplications        RecruitmentApplication[]
@@ -4684,6 +4693,7 @@ model RecruitmentRequisition {
   hiringManager   Employee?        @relation("RecruitmentRequisitionHiringManager", fields: [hiringManagerId], references: [id], onDelete: SetNull)
   recruiter       Employee?        @relation("RecruitmentRequisitionRecruiter", fields: [recruiterId], references: [id], onDelete: SetNull)
   approvalRequest ApprovalRequest? @relation("RecruitmentRequisitionApproval", fields: [approvalRequestId], references: [id], onDelete: SetNull)
+  jobPosting      RecruitmentJobPosting?
   stages          RecruitmentPipelineStage[]
   applications    RecruitmentApplication[]
 
@@ -4693,6 +4703,44 @@ model RecruitmentRequisition {
   @@index([hiringManagerId])
   @@index([recruiterId])
   @@index([approvalRequestId])
+}
+
+model RecruitmentJobPosting {
+  id             String                  @id @default(uuid())
+  tenantId       String
+  requisitionId  String                  @unique
+  slug           String
+  title          String
+  summary        String?
+  description    String?
+  requirements   String?
+  departmentName String?
+  locationName   String?
+  employmentType RecruitmentEmploymentType?
+  workMode       RecruitmentWorkMode?
+  salaryMinCents Int?
+  salaryMaxCents Int?
+  currencyCode   String                  @default("USD")
+  status         RecruitmentPostingStatus @default(DRAFT)
+  internalOnly   Boolean                 @default(false)
+  publishedAt    DateTime?
+  expiresAt      DateTime?
+  applyBy        DateTime?
+  questionSet    Json?
+  consentText    String?
+  sourceLabel    String?
+  metadata       Json?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  deletedAt      DateTime?
+
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  requisition RecruitmentRequisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, status])
+  @@index([publishedAt])
+  @@index([expiresAt])
 }
 
 model RecruitmentApprovalRule {
