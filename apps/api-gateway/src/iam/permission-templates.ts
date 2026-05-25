@@ -119,6 +119,8 @@ export const permissionTemplates: PermissionTemplate[] = [
       'recruitment.interview',
       'recruitment.offer.write',
       'recruitment.reports.read',
+      'qa.read',
+      'qa.run',
       'audit.read',
       'activity.read',
       'timeline.read',

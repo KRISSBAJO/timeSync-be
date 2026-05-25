@@ -170,6 +170,8 @@ const permissionDefinitions = [
   ['recruitment.interview', 'Submit Recruitment Feedback', 'recruitment'],
   ['recruitment.offer.write', 'Manage Recruitment Offers', 'recruitment'],
   ['recruitment.reports.read', 'Read Recruitment Reports', 'recruitment'],
+  ['qa.read', 'Read QA Console', 'qa'],
+  ['qa.run', 'Run QA Scripts', 'qa'],
   ['audit.read', 'Read Audit Logs', 'audit'],
   ['activity.read', 'Read Activity Logs', 'audit'],
   ['timeline.read', 'Read Timeline', 'audit'],

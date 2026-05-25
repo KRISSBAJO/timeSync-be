@@ -29,6 +29,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { OrganizationModule } from './organization/organization.module';
 import { PersonsModule } from './persons/persons.module';
 import { PositionsModule } from './positions/positions.module';
+import { QaModule } from './qa/qa.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
 import { SchedulingModule } from './scheduling/scheduling.module';
@@ -96,6 +97,7 @@ import { WorkflowsModule } from './workflows/workflows.module';
     EmployeesModule,
     AssignmentsModule,
     PositionsModule,
+    QaModule,
     WorkflowsModule,
     DocumentsModule,
     FormsModule,

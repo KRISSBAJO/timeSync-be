@@ -78,6 +78,8 @@ export const platformPermissionCatalog: PermissionCatalogItem[] = [
   { code: 'recruitment.interview', name: 'Submit Recruitment Feedback', module: 'recruitment' },
   { code: 'recruitment.offer.write', name: 'Manage Recruitment Offers', module: 'recruitment' },
   { code: 'recruitment.reports.read', name: 'Read Recruitment Reports', module: 'recruitment' },
+  { code: 'qa.read', name: 'Read QA Console', module: 'qa' },
+  { code: 'qa.run', name: 'Run QA Scripts', module: 'qa' },
   { code: 'audit.read', name: 'Read Audit Logs', module: 'audit' },
   { code: 'activity.read', name: 'Read Activity Logs', module: 'audit' },
   { code: 'timeline.read', name: 'Read Timeline', module: 'audit' },
