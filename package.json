@@ -24,6 +24,7 @@
     "openapi:export": "node scripts/export-openapi.cjs",
     "smoke:frontend": "node ./node_modules/tsx/dist/cli.mjs scripts/frontend-readiness-smoke.ts",
     "smoke:attendance-leave": "node scripts/attendance-leave-smoke.cjs",
+    "smoke:recruitment": "node scripts/recruitment-smoke.cjs",
     "ops:runtime-check": "node ./node_modules/tsx/dist/cli.mjs scripts/production-readiness-check.ts",
     "backup:postgres": "node ./node_modules/tsx/dist/cli.mjs scripts/postgres-backup.ts",
     "ci:verify": "npm run prisma:generate && npm run prisma:validate && npm run build && npm run lint && npm run test && npm run openapi:export"
