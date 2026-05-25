@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -284,22 +284,19 @@ export class QaService {
   }
 
   private spawnRun(script: QaScriptDefinition, run: MutableQaRun) {
-    const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const args = ['run', script.npmScript, ...(script.npmArgs ?? [])];
+    const spawnSpec = this.buildSpawnSpec(script);
 
     run.status = 'RUNNING';
     this.append(run, 'system', `Starting ${this.commandFor(script)} in ${script.cwd}.`);
 
-    const child = spawn(npmCommand, args, {
-      cwd: script.cwd,
-      env: {
-        ...process.env,
-        CI: process.env.CI ?? 'true',
-        FORCE_COLOR: '0',
-        NO_COLOR: '1',
-      },
-      windowsHide: true,
-    });
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(spawnSpec.command, spawnSpec.args, spawnSpec.options);
+    } catch (error) {
+      this.append(run, 'system', `Process failed to start: ${errorMessage(error)}`);
+      this.finish(run, 'FAILED', null);
+      return;
+    }
 
     run.process = child;
     run.timeout = setTimeout(() => {
@@ -321,6 +318,8 @@ export class QaService {
   }
 
   private finish(run: MutableQaRun, status: QaRunStatus, exitCode: number | null) {
+    if (run.finishedAt) return;
+
     if (run.timeout) clearTimeout(run.timeout);
     run.status = status;
     run.exitCode = exitCode;
@@ -337,6 +336,51 @@ export class QaService {
     }
 
     child.kill('SIGTERM');
+  }
+
+  private buildSpawnSpec(script: QaScriptDefinition): { command: string; args: string[]; options: SpawnOptionsWithoutStdio } {
+    const options: SpawnOptionsWithoutStdio = {
+      cwd: script.cwd,
+      env: this.childEnv(),
+      windowsHide: true,
+    };
+
+    if (process.platform === 'win32') {
+      return {
+        command: process.env.ComSpec || 'cmd.exe',
+        args: ['/d', '/s', '/c', this.windowsCommand(script)],
+        options,
+      };
+    }
+
+    return {
+      command: 'npm',
+      args: ['run', script.npmScript, ...(script.npmArgs ?? [])],
+      options,
+    };
+  }
+
+  private windowsCommand(script: QaScriptDefinition) {
+    return ['npm', 'run', script.npmScript, ...(script.npmArgs ?? [])]
+      .map((part) => (part.includes(' ') ? `"${part.replaceAll('"', '')}"` : part))
+      .join(' ');
+  }
+
+  private childEnv() {
+    const env: NodeJS.ProcessEnv = {};
+
+    for (const [key, value] of Object.entries(process.env)) {
+      if (!key || key.startsWith('=') || key.includes('\0') || value === undefined || value.includes('\0')) {
+        continue;
+      }
+
+      env[key] = value;
+    }
+
+    env.CI = process.env.CI ?? 'true';
+    env.FORCE_COLOR = '0';
+    env.NO_COLOR = '1';
+    return env;
   }
 
   private append(run: MutableQaRun, stream: QaRunStream, message: string) {
@@ -413,4 +457,8 @@ export class QaService {
 
 function stripAnsi(value: string) {
   return value.replace(ANSI_ESCAPE_PATTERN, '');
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Unknown process error.';
 }
