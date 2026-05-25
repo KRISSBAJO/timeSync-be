@@ -1,0 +1,97 @@
+export type PermissionCatalogItem = {
+  code: string;
+  name: string;
+  module: string;
+  description?: string;
+};
+
+export const platformPermissionCatalog: PermissionCatalogItem[] = [
+  { code: 'platform.tenants.manage', name: 'Manage Tenants', module: 'platform' },
+  { code: 'platform.features.manage', name: 'Manage Platform Features', module: 'platform' },
+  { code: 'platform.settings.manage', name: 'Manage Platform Settings', module: 'platform' },
+  { code: 'platform.audit.read', name: 'Read Platform Audit', module: 'platform' },
+  { code: 'tenants.settings.read', name: 'Read Tenant Settings', module: 'tenants' },
+  { code: 'tenants.settings.write', name: 'Write Tenant Settings', module: 'tenants' },
+  { code: 'tenants.branding.read', name: 'Read Tenant Branding', module: 'tenants' },
+  { code: 'tenants.branding.write', name: 'Write Tenant Branding', module: 'tenants' },
+  { code: 'tenants.features.read', name: 'Read Tenant Features', module: 'tenants' },
+  { code: 'tenants.features.write', name: 'Write Tenant Features', module: 'tenants' },
+  { code: 'tenants.subscription.read', name: 'Read Tenant Subscription', module: 'tenants' },
+  { code: 'tenants.subscription.write', name: 'Write Tenant Subscription', module: 'tenants' },
+  { code: 'iam.users.read', name: 'Read Users', module: 'iam' },
+  { code: 'iam.users.write', name: 'Write Users', module: 'iam' },
+  { code: 'iam.roles.read', name: 'Read Roles', module: 'iam' },
+  { code: 'iam.roles.write', name: 'Write Roles', module: 'iam' },
+  { code: 'iam.permissions.read', name: 'Read Permissions', module: 'iam' },
+  { code: 'organization.read', name: 'Read Organization', module: 'organization' },
+  { code: 'organization.write', name: 'Write Organization', module: 'organization' },
+  { code: 'cost-centers.read', name: 'Read Cost Centers', module: 'organization' },
+  { code: 'cost-centers.write', name: 'Write Cost Centers', module: 'organization' },
+  { code: 'persons.read', name: 'Read Persons', module: 'persons' },
+  { code: 'persons.write', name: 'Write Persons', module: 'persons' },
+  { code: 'persons.sensitive.read', name: 'Read Sensitive Person Data', module: 'persons' },
+  { code: 'employees.read', name: 'Read Employees', module: 'employees' },
+  { code: 'employees.write', name: 'Write Employees', module: 'employees' },
+  { code: 'employees.invite', name: 'Invite Employees', module: 'employees' },
+  { code: 'employees.transfer', name: 'Transfer Employees', module: 'employees' },
+  { code: 'employees.suspend', name: 'Suspend Employees', module: 'employees' },
+  { code: 'employees.separate', name: 'Separate Employees', module: 'employees' },
+  { code: 'assignments.read', name: 'Read Assignments', module: 'workforce' },
+  { code: 'assignments.write', name: 'Write Assignments', module: 'workforce' },
+  { code: 'positions.read', name: 'Read Positions', module: 'positions' },
+  { code: 'positions.write', name: 'Write Positions', module: 'positions' },
+  { code: 'workforce-actions.read', name: 'Read Workforce Actions', module: 'workforce' },
+  { code: 'workforce-actions.write', name: 'Write Workforce Actions', module: 'workforce' },
+  { code: 'workflows.read', name: 'Read Workflows', module: 'workflows' },
+  { code: 'workflows.write', name: 'Write Workflows', module: 'workflows' },
+  { code: 'approvals.read', name: 'Read Approvals', module: 'workflows' },
+  { code: 'approvals.process', name: 'Process Approvals', module: 'workflows' },
+  { code: 'documents.read', name: 'Read Documents', module: 'documents' },
+  { code: 'documents.write', name: 'Write Documents', module: 'documents' },
+  { code: 'documents.verify', name: 'Verify Documents', module: 'documents' },
+  { code: 'notifications.read', name: 'Read Notifications', module: 'notifications' },
+  { code: 'notifications.write', name: 'Write Notifications', module: 'notifications' },
+  { code: 'forms.read', name: 'Read Forms', module: 'forms' },
+  { code: 'forms.write', name: 'Write Forms', module: 'forms' },
+  { code: 'scheduling.read', name: 'Read Scheduling', module: 'scheduling' },
+  { code: 'scheduling.write', name: 'Write Scheduling', module: 'scheduling' },
+  { code: 'scheduling.team.write', name: 'Manage Team Scheduling', module: 'scheduling' },
+  { code: 'scheduling.self', name: 'Self-Service Scheduling', module: 'scheduling' },
+  { code: 'scheduling.overtime.approve', name: 'Approve Overtime', module: 'scheduling' },
+  { code: 'attendance.read', name: 'Read Attendance', module: 'attendance' },
+  { code: 'attendance.write', name: 'Write Attendance', module: 'attendance' },
+  { code: 'attendance.team.write', name: 'Manage Team Attendance', module: 'attendance' },
+  { code: 'attendance.self', name: 'Self-Service Attendance', module: 'attendance' },
+  { code: 'attendance.controls.write', name: 'Manage Attendance Controls', module: 'attendance' },
+  { code: 'attendance.reports.read', name: 'Read Attendance Reports', module: 'attendance' },
+  { code: 'attendance.exceptions.approve', name: 'Approve Attendance Exceptions', module: 'attendance' },
+  { code: 'attendance.timesheets.approve', name: 'Approve Timesheets', module: 'attendance' },
+  { code: 'leave.self', name: 'Self-Service Leave', module: 'leave' },
+  { code: 'leave.team.read', name: 'Read Team Leave', module: 'leave' },
+  { code: 'leave.team.write', name: 'Manage Team Leave', module: 'leave' },
+  { code: 'leave.approve', name: 'Approve Leave', module: 'leave' },
+  { code: 'leave.policy.write', name: 'Manage Leave Policies', module: 'leave' },
+  { code: 'leave.reports.read', name: 'Read Leave Reports', module: 'leave' },
+  { code: 'audit.read', name: 'Read Audit Logs', module: 'audit' },
+  { code: 'activity.read', name: 'Read Activity Logs', module: 'audit' },
+  { code: 'timeline.read', name: 'Read Timeline', module: 'audit' },
+  { code: 'outbox.read', name: 'Read Outbox Messages', module: 'audit' },
+  { code: 'outbox.process', name: 'Process Outbox Messages', module: 'audit' },
+  { code: 'content.read', name: 'Read HR Guides', module: 'content' },
+  { code: 'content.write', name: 'Write HR Guides', module: 'content' },
+  { code: 'content.publish', name: 'Publish HR Guides', module: 'content' },
+  { code: 'dashboard.read', name: 'Read Dashboard', module: 'dashboard' },
+  { code: 'dashboard.write', name: 'Write Dashboard', module: 'dashboard' },
+  { code: 'analytics.read', name: 'Read Analytics', module: 'analytics' },
+  { code: 'analytics.write', name: 'Write Analytics', module: 'analytics' },
+];
+
+export const platformPermissionCodes = platformPermissionCatalog.map((permission) => permission.code);
+
+export const platformSupportPermissionCodes = platformPermissionCatalog
+  .filter((permission) => permission.code.endsWith('.read') || permission.code.includes('platform.audit'))
+  .map((permission) => permission.code);
+
+export const tenantAdminTemplatePermissionCodes = platformPermissionCatalog
+  .filter((permission) => !permission.code.startsWith('platform.'))
+  .map((permission) => permission.code);

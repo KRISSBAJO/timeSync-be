@@ -1,0 +1,94 @@
+name: Backend CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://timesync:timesync_dev_password@localhost:5432/timesync_hr?schema=public
+      CORS_ORIGINS: http://localhost:3000
+      AUTH_COOKIE_SECURE: "false"
+      SWAGGER_ENABLED: "true"
+      BACKUP_ENABLED: "true"
+      BACKUP_STORAGE_PROVIDER: local
+      BACKUP_LOCAL_PATH: ./storage/backups
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: timesync
+          POSTGRES_PASSWORD: timesync_dev_password
+          POSTGRES_DB: timesync_hr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U timesync -d timesync_hr"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Validate Prisma schema
+        run: npm run prisma:validate
+
+      - name: Apply migrations
+        run: npm run prisma:deploy
+
+      - name: Build
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Export OpenAPI
+        run: npm run openapi:export
+
+      - name: Seed reference data
+        run: npm run db:seed
+
+      - name: Runtime readiness smoke
+        run: |
+          npm run start:prod &
+          API_PID=$!
+          trap "kill $API_PID" EXIT
+          for i in {1..30}; do
+            if curl -fsS http://localhost:4040/api/v1/health/live > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          npm run ops:runtime-check

@@ -1,0 +1,49 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2022",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "strict": true,
+    "strictPropertyInitialization": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "paths": {
+      "@timesync/common": [
+        "libs/common/src"
+      ],
+      "@timesync/common/*": [
+        "libs/common/src/*"
+      ],
+      "@timesync/config": [
+        "libs/config/src"
+      ],
+      "@timesync/config/*": [
+        "libs/config/src/*"
+      ],
+      "@timesync/database": [
+        "libs/database/src"
+      ],
+      "@timesync/database/*": [
+        "libs/database/src/*"
+      ],
+      "@timesync/tenancy": [
+        "libs/tenancy/src"
+      ],
+      "@timesync/tenancy/*": [
+        "libs/tenancy/src/*"
+      ]
+    }
+  }
+}
+

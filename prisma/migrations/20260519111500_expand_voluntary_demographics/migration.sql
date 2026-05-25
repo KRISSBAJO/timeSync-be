@@ -1,0 +1,11 @@
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "genderIdentity" TEXT;
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "sexAssignedAtBirth" TEXT;
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "sexualOrientation" TEXT;
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "race" TEXT;
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "primaryLanguageCode" TEXT;
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "ethnicityDetail" TEXT;
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "religionDetail" TEXT;
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "caregiverStatus" TEXT;
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "accommodationRequired" BOOLEAN;
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "consentSource" TEXT;
+ALTER TABLE "PersonDemographicProfile" ADD COLUMN "consentNote" TEXT;

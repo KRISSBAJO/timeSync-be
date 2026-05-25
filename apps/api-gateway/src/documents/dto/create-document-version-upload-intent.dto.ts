@@ -1,0 +1,49 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsBoolean,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
+
+export class CreateDocumentVersionUploadIntentDto {
+  @ApiProperty({ example: 'work-permit-ada-lovelace.pdf' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(260)
+  fileName!: string;
+
+  @ApiPropertyOptional({ example: 'application/pdf' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  mimeType?: string;
+
+  @ApiPropertyOptional({ example: 245760 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(5_000_000_000)
+  sizeBytes?: number;
+
+  @ApiPropertyOptional({ example: 'sha256:abc123' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  checksum?: string;
+
+  @ApiPropertyOptional({ example: true, default: true })
+  @IsOptional()
+  @IsBoolean()
+  setCurrent?: boolean;
+
+  @ApiPropertyOptional({ example: { source: 'browser-upload' } })
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
