@@ -11,6 +11,7 @@ import {
   RecruitmentPostingStatus,
   RecruitmentRequisitionStatus,
   RecruitmentStageType,
+  RecruitmentTalentProfileStatus,
   RecruitmentWorkMode,
 } from '@prisma/client';
 import {
@@ -411,6 +412,26 @@ export class PublicCareerQueryDto {
   employmentType?: string;
 }
 
+export class PublicHiringMarketplaceQueryDto extends PublicCareerQueryDto {
+  @ApiPropertyOptional({ example: 'acme-health' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  tenantSlug?: string;
+
+  @ApiPropertyOptional({ example: 'Chicago' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  location?: string;
+
+  @ApiPropertyOptional({ example: 'Care Coordination' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  department?: string;
+}
+
 export class PublicJobApplicationDto {
   @ApiProperty({ example: 'Maya' })
   @IsString()
@@ -479,6 +500,120 @@ export class PublicJobApplicationDto {
   @IsOptional()
   @IsObject()
   answers?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+export class PublicTalentProfileDto {
+  @ApiProperty({ example: 'Jordan' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  firstName!: string;
+
+  @ApiProperty({ example: 'Parker' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  lastName!: string;
+
+  @ApiProperty({ example: 'jordan.parker@example.com' })
+  @IsEmail()
+  @MaxLength(240)
+  email!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  phone?: string;
+
+  @ApiPropertyOptional({ example: 'Care Coordinator' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  desiredTitle?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  currentTitle?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  currentEmployer?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  locationName?: string;
+
+  @ApiPropertyOptional({ enum: RecruitmentWorkMode, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsEnum(RecruitmentWorkMode, { each: true })
+  workModes?: RecruitmentWorkMode[];
+
+  @ApiPropertyOptional({ enum: RecruitmentEmploymentType, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @IsEnum(RecruitmentEmploymentType, { each: true })
+  employmentTypes?: RecruitmentEmploymentType[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  skills?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  @MaxLength(1000)
+  resumeUrl?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  @MaxLength(1000)
+  portfolioUrl?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  availabilityNote?: string;
+
+  @ApiPropertyOptional({ example: 'public hiring marketplace' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  source?: string;
+
+  @ApiPropertyOptional({ example: 'acme-health' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  preferredTenantSlug?: string;
+
+  @ApiPropertyOptional({ enum: RecruitmentTalentProfileStatus })
+  @IsOptional()
+  @IsEnum(RecruitmentTalentProfileStatus)
+  status?: RecruitmentTalentProfileStatus;
+
+  @ApiProperty()
+  @IsBoolean()
+  consentAccepted!: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()

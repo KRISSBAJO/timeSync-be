@@ -44,6 +44,7 @@ import {
   RecruitmentPostingStatus,
   RecruitmentRequisitionStatus,
   RecruitmentStageType,
+  RecruitmentTalentProfileStatus,
   RecruitmentWorkMode,
   ScheduleAssignmentSource,
   ScheduleAssignmentStatus,
@@ -2197,6 +2198,24 @@ async function ensureRecruitmentDemoData(
     },
   });
 
+  await ensureRecruitmentTalentProfile({
+    tenantId,
+    firstName: 'Taylor',
+    lastName: 'Morgan',
+    email: 'taylor.marketplace@example.com',
+    phone: '+1-312-555-0168',
+    desiredTitle: 'Care Coordinator',
+    currentTitle: 'Patient Services Associate',
+    currentEmployer: 'Northside Clinic',
+    locationName: 'Chicago, IL',
+    workModes: [RecruitmentWorkMode.HYBRID, RecruitmentWorkMode.ONSITE],
+    employmentTypes: [RecruitmentEmploymentType.FULL_TIME],
+    skills: ['patient intake', 'scheduling', 'care coordination', 'EHR'],
+    resumeUrl: 'https://example.com/taylor-morgan-resume.pdf',
+    portfolioUrl: 'https://example.com/taylor-morgan',
+    availabilityNote: 'Available after two weeks notice.',
+  });
+
   const pendingReq = await ensureRecruitmentRequisition({
     tenantId,
     code: 'REQ-PEOPLE-OPS-2026',
@@ -3874,6 +3893,70 @@ async function ensureRecruitmentJobPosting(data: {
       ...payload,
     },
     update: payload,
+  });
+}
+
+async function ensureRecruitmentTalentProfile(data: {
+  tenantId?: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  desiredTitle: string;
+  currentTitle: string;
+  currentEmployer: string;
+  locationName: string;
+  workModes: RecruitmentWorkMode[];
+  employmentTypes: RecruitmentEmploymentType[];
+  skills: string[];
+  resumeUrl: string;
+  portfolioUrl: string;
+  availabilityNote: string;
+}) {
+  return prisma.recruitmentTalentProfile.upsert({
+    where: { email: data.email },
+    create: {
+      tenantId: data.tenantId,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email,
+      phone: data.phone,
+      desiredTitle: data.desiredTitle,
+      currentTitle: data.currentTitle,
+      currentEmployer: data.currentEmployer,
+      locationName: data.locationName,
+      workModes: data.workModes,
+      employmentTypes: data.employmentTypes,
+      skills: data.skills,
+      resumeUrl: data.resumeUrl,
+      portfolioUrl: data.portfolioUrl,
+      availabilityNote: data.availabilityNote,
+      source: 'Demo marketplace profile',
+      status: RecruitmentTalentProfileStatus.ACTIVE,
+      consentAccepted: true,
+      metadata: { demo: true, source: 'public_hiring_marketplace' },
+    },
+    update: {
+      tenantId: data.tenantId,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      phone: data.phone,
+      desiredTitle: data.desiredTitle,
+      currentTitle: data.currentTitle,
+      currentEmployer: data.currentEmployer,
+      locationName: data.locationName,
+      workModes: data.workModes,
+      employmentTypes: data.employmentTypes,
+      skills: data.skills,
+      resumeUrl: data.resumeUrl,
+      portfolioUrl: data.portfolioUrl,
+      availabilityNote: data.availabilityNote,
+      source: 'Demo marketplace profile',
+      status: RecruitmentTalentProfileStatus.ACTIVE,
+      consentAccepted: true,
+      deletedAt: null,
+      metadata: { demo: true, source: 'public_hiring_marketplace' },
+    },
   });
 }
 

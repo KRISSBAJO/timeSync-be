@@ -12,6 +12,7 @@ import {
   RecruitmentPostingStatus,
   RecruitmentRequisitionStatus,
   RecruitmentStageType,
+  RecruitmentTalentProfileStatus,
   TenantFeatureStatus,
   RecruitmentWorkMode,
   TimelineEventType,
@@ -38,7 +39,9 @@ import {
   ListRecruitmentQueryDto,
   MoveApplicationDto,
   PublicCareerQueryDto,
+  PublicHiringMarketplaceQueryDto,
   PublicJobApplicationDto,
+  PublicTalentProfileDto,
   PublishRecruitmentPostingDto,
   ScheduleInterviewDto,
   SubmitInterviewFeedbackDto,
@@ -815,6 +818,228 @@ export class RecruitmentService {
       alreadyApplied: false,
       application: this.publicApplicationReceipt(application),
       job: this.publicJobSummary(posting),
+    };
+  }
+
+  async getPublicHiringMarketplace(query: PublicHiringMarketplaceQueryDto) {
+    const limit = query.limit ?? 50;
+    const now = new Date();
+    const workMode = this.enumValue(RecruitmentWorkMode, query.workMode);
+    const employmentType = this.enumValue(RecruitmentEmploymentType, query.employmentType);
+
+    const where: Prisma.RecruitmentJobPostingWhereInput = {
+      status: RecruitmentPostingStatus.PUBLISHED,
+      internalOnly: false,
+      deletedAt: null,
+      workMode,
+      employmentType,
+      locationName: query.location ? { contains: query.location, mode: 'insensitive' } : undefined,
+      departmentName: query.department ? { contains: query.department, mode: 'insensitive' } : undefined,
+      tenant: {
+        slug: query.tenantSlug,
+        deletedAt: null,
+        features: {
+          some: {
+            status: { in: [TenantFeatureStatus.ENABLED, TenantFeatureStatus.BETA, TenantFeatureStatus.TRIAL] },
+            platformFeature: { code: 'RECRUITMENT', isActive: true },
+          },
+        },
+      },
+      OR: [
+        { expiresAt: null },
+        { expiresAt: { gte: now } },
+      ],
+      AND: [
+        { OR: [{ applyBy: null }, { applyBy: { gte: now } }] },
+        { requisition: { status: RecruitmentRequisitionStatus.OPEN, deletedAt: null } },
+        ...(query.search
+          ? [{
+              OR: [
+                { title: { contains: query.search, mode: 'insensitive' as const } },
+                { summary: { contains: query.search, mode: 'insensitive' as const } },
+                { departmentName: { contains: query.search, mode: 'insensitive' as const } },
+                { locationName: { contains: query.search, mode: 'insensitive' as const } },
+                { sourceLabel: { contains: query.search, mode: 'insensitive' as const } },
+                { tenant: { name: { contains: query.search, mode: 'insensitive' as const } } },
+                { requisition: { code: { contains: query.search, mode: 'insensitive' as const } } },
+              ],
+            }]
+          : []),
+      ],
+    };
+
+    const [jobs, total, companyCount, latestProfiles] = await Promise.all([
+      this.prisma.recruitmentJobPosting.findMany({
+        where,
+        take: limit,
+        orderBy: [{ publishedAt: 'desc' }, { updatedAt: 'desc' }],
+        include: this.marketplacePostingInclude,
+      }),
+      this.prisma.recruitmentJobPosting.count({ where }),
+      this.prisma.recruitmentJobPosting.findMany({
+        where: {
+          status: RecruitmentPostingStatus.PUBLISHED,
+          internalOnly: false,
+          deletedAt: null,
+          tenant: {
+            deletedAt: null,
+            features: {
+              some: {
+                status: { in: [TenantFeatureStatus.ENABLED, TenantFeatureStatus.BETA, TenantFeatureStatus.TRIAL] },
+                platformFeature: { code: 'RECRUITMENT', isActive: true },
+              },
+            },
+          },
+          OR: [{ expiresAt: null }, { expiresAt: { gte: now } }],
+          AND: [
+            { OR: [{ applyBy: null }, { applyBy: { gte: now } }] },
+            { requisition: { status: RecruitmentRequisitionStatus.OPEN, deletedAt: null } },
+          ],
+        },
+        distinct: ['tenantId'],
+        select: { tenantId: true },
+      }),
+      this.prisma.recruitmentTalentProfile.findMany({
+        where: { status: RecruitmentTalentProfileStatus.ACTIVE, deletedAt: null },
+        orderBy: [{ updatedAt: 'desc' }],
+        take: 6,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          desiredTitle: true,
+          locationName: true,
+          skills: true,
+          workModes: true,
+          employmentTypes: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+
+    return {
+      generatedAt: new Date(),
+      metrics: {
+        openJobs: total,
+        companies: companyCount.length,
+        talentProfiles: await this.prisma.recruitmentTalentProfile.count({
+          where: { status: RecruitmentTalentProfileStatus.ACTIVE, deletedAt: null },
+        }),
+      },
+      data: jobs.map((job) => this.publicMarketplaceJobSummary(job)),
+      talentProfiles: latestProfiles.map((profile) => ({
+        ...profile,
+        displayName: `${profile.firstName} ${profile.lastName.slice(0, 1)}.`,
+      })),
+      page: { limit, total },
+    };
+  }
+
+  async submitPublicTalentProfile(dto: PublicTalentProfileDto) {
+    if (!dto.consentAccepted) {
+      throw new BadRequestException('Candidate consent is required before publishing a talent profile.');
+    }
+
+    const email = dto.email.trim().toLowerCase();
+    const tenant = dto.preferredTenantSlug
+      ? await this.prisma.tenant.findFirst({
+          where: {
+            slug: dto.preferredTenantSlug.trim().toLowerCase(),
+            deletedAt: null,
+            features: {
+              some: {
+                status: { in: [TenantFeatureStatus.ENABLED, TenantFeatureStatus.BETA, TenantFeatureStatus.TRIAL] },
+                platformFeature: { code: 'RECRUITMENT', isActive: true },
+              },
+            },
+          },
+          select: { id: true, slug: true, name: true },
+        })
+      : null;
+
+    const before = await this.prisma.recruitmentTalentProfile.findUnique({ where: { email } });
+    const profile = await this.prisma.recruitmentTalentProfile.upsert({
+      where: { email },
+      create: {
+        tenantId: tenant?.id,
+        firstName: dto.firstName.trim(),
+        lastName: dto.lastName.trim(),
+        email,
+        phone: dto.phone?.trim(),
+        desiredTitle: dto.desiredTitle?.trim(),
+        currentTitle: dto.currentTitle?.trim(),
+        currentEmployer: dto.currentEmployer?.trim(),
+        locationName: dto.locationName?.trim(),
+        workModes: dto.workModes ?? [],
+        employmentTypes: dto.employmentTypes ?? [],
+        skills: this.cleanStringList(dto.skills),
+        resumeUrl: dto.resumeUrl,
+        portfolioUrl: dto.portfolioUrl,
+        availabilityNote: dto.availabilityNote?.trim(),
+        source: dto.source?.trim() ?? 'Public hiring marketplace',
+        status: dto.status ?? RecruitmentTalentProfileStatus.ACTIVE,
+        consentAccepted: dto.consentAccepted,
+        metadata: this.toJson({
+          preferredTenant: tenant,
+          source: 'public_hiring_marketplace',
+          ...dto.metadata,
+        }),
+      },
+      update: {
+        tenantId: tenant?.id,
+        firstName: dto.firstName.trim(),
+        lastName: dto.lastName.trim(),
+        phone: dto.phone?.trim(),
+        desiredTitle: dto.desiredTitle?.trim(),
+        currentTitle: dto.currentTitle?.trim(),
+        currentEmployer: dto.currentEmployer?.trim(),
+        locationName: dto.locationName?.trim(),
+        workModes: dto.workModes ?? [],
+        employmentTypes: dto.employmentTypes ?? [],
+        skills: this.cleanStringList(dto.skills),
+        resumeUrl: dto.resumeUrl,
+        portfolioUrl: dto.portfolioUrl,
+        availabilityNote: dto.availabilityNote?.trim(),
+        source: dto.source?.trim() ?? before?.source ?? 'Public hiring marketplace',
+        status: dto.status ?? RecruitmentTalentProfileStatus.ACTIVE,
+        consentAccepted: dto.consentAccepted,
+        metadata: this.mergeJsonObject(before?.metadata, {
+          preferredTenant: tenant,
+          source: 'public_hiring_marketplace',
+          lastSubmittedAt: new Date().toISOString(),
+          ...dto.metadata,
+        }),
+        deletedAt: null,
+      },
+    });
+
+    await Promise.all([
+      this.prisma.auditLog.create({
+        data: {
+          tenantId: tenant?.id,
+          action: before ? AuditAction.UPDATE : AuditAction.CREATE,
+          module: 'recruitment',
+          entityType: 'RecruitmentTalentProfile',
+          entityId: profile.id,
+          before: before ? this.talentProfileState(before) : undefined,
+          after: this.talentProfileState(profile),
+          metadata: { source: 'public_hiring_marketplace' },
+        },
+      }),
+      this.enqueueOutbox(this.prisma, tenant?.id ?? null, 'recruitment.public_talent_profile.submitted', 'RecruitmentTalentProfile', profile.id, this.talentProfileState(profile)),
+    ]);
+
+    return {
+      received: true,
+      profile: {
+        id: profile.id,
+        status: profile.status,
+        displayName: `${profile.firstName} ${profile.lastName.slice(0, 1)}.`,
+        desiredTitle: profile.desiredTitle,
+        locationName: profile.locationName,
+        skills: profile.skills,
+        updatedAt: profile.updatedAt,
+      },
     };
   }
 
@@ -1674,6 +1899,47 @@ export class RecruitmentService {
     };
   }
 
+  private publicMarketplaceJobSummary(posting: {
+    id: string;
+    slug: string;
+    title: string;
+    summary?: string | null;
+    departmentName?: string | null;
+    locationName?: string | null;
+    employmentType?: RecruitmentEmploymentType | null;
+    workMode?: RecruitmentWorkMode | null;
+    salaryMinCents?: number | null;
+    salaryMaxCents?: number | null;
+    currencyCode: string;
+    publishedAt?: Date | null;
+    applyBy?: Date | null;
+    sourceLabel?: string | null;
+    tenant: {
+      id: string;
+      name: string;
+      slug: string;
+      industry?: string | null;
+      branding?: {
+        logoUrl?: string | null;
+        primaryColor?: string | null;
+        secondaryColor?: string | null;
+        accentColor?: string | null;
+      } | null;
+    };
+    requisition: {
+      id: string;
+      code: string;
+      headcount: number;
+      _count?: { applications: number };
+    };
+  }) {
+    return {
+      ...this.publicJobSummary(posting),
+      tenant: this.publicTenantState(posting.tenant),
+      publicUrl: `/careers/${posting.tenant.slug}/jobs/${posting.slug}`,
+    };
+  }
+
   private publicJobDetail(posting: {
     id: string;
     slug: string;
@@ -1753,6 +2019,36 @@ export class RecruitmentService {
     };
   }
 
+  private talentProfileState(row: {
+    id: string;
+    tenantId?: string | null;
+    firstName: string;
+    lastName: string;
+    email: string;
+    desiredTitle?: string | null;
+    locationName?: string | null;
+    workModes: RecruitmentWorkMode[];
+    employmentTypes: RecruitmentEmploymentType[];
+    skills: string[];
+    status: RecruitmentTalentProfileStatus;
+    consentAccepted: boolean;
+  }): Prisma.InputJsonObject {
+    return {
+      id: row.id,
+      tenantId: row.tenantId ?? null,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      email: row.email,
+      desiredTitle: row.desiredTitle ?? null,
+      locationName: row.locationName ?? null,
+      workModes: row.workModes,
+      employmentTypes: row.employmentTypes,
+      skills: row.skills,
+      status: row.status,
+      consentAccepted: row.consentAccepted,
+    };
+  }
+
   private defaultPostingSummary(requisition: Pick<RecruitmentRequisition, 'departmentName' | 'locationName' | 'employmentType' | 'workMode'>) {
     return [
       requisition.departmentName,
@@ -1777,6 +2073,10 @@ export class RecruitmentService {
 
   private humanizeText(value: string) {
     return value.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  private cleanStringList(value?: string[]) {
+    return Array.from(new Set((value ?? []).map((item) => item.trim()).filter(Boolean))).slice(0, 30);
   }
 
   private approvalRuleCreateData(tenantId: string, dto: CreateRecruitmentApprovalRuleDto): Prisma.RecruitmentApprovalRuleCreateInput {
@@ -2283,7 +2583,7 @@ export class RecruitmentService {
 
   private async enqueueOutbox(
     client: Prisma.TransactionClient | PrismaService,
-    tenantId: string,
+    tenantId: string | null,
     eventType: string,
     aggregateType: string,
     aggregateId: string,
@@ -2420,6 +2720,35 @@ export class RecruitmentService {
   } satisfies Prisma.RecruitmentJobPostingInclude;
 
   private readonly publicPostingInclude = {
+    requisition: {
+      select: {
+        id: true,
+        code: true,
+        headcount: true,
+        status: true,
+        openedAt: true,
+        _count: { select: { applications: true } },
+      },
+    },
+  } satisfies Prisma.RecruitmentJobPostingInclude;
+
+  private readonly marketplacePostingInclude = {
+    tenant: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        industry: true,
+        branding: {
+          select: {
+            logoUrl: true,
+            primaryColor: true,
+            secondaryColor: true,
+            accentColor: true,
+          },
+        },
+      },
+    },
     requisition: {
       select: {
         id: true,

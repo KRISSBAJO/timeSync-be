@@ -38,6 +38,7 @@ const employeeForbiddenEndpoints = [
 ];
 
 const frontendPages = [
+  '/hire',
   `/careers/${tenantSlug}`,
   `/careers/${tenantSlug}/jobs/${publicJobSlug}`,
   '/recruitment',
@@ -84,6 +85,14 @@ async function main() {
 async function runPublicCareersSmoke(session) {
   await smokeFetch(
     session,
+    '/api/v1/hiring',
+    { method: 'GET' },
+    200,
+    'public hiring marketplace',
+    expectHiringMarketplace,
+  );
+  await smokeFetch(
+    session,
     `/api/v1/careers/${tenantSlug}`,
     { method: 'GET' },
     200,
@@ -124,6 +133,34 @@ async function runPublicCareersSmoke(session) {
     200,
     'public application intake',
     expectPublicApplicationReceipt,
+  );
+  await smokeFetch(
+    session,
+    '/api/v1/hiring/talent-profiles',
+    {
+      method: 'POST',
+      body: {
+        firstName: 'Marketplace',
+        lastName: 'Talent',
+        email: `marketplace.talent.${Date.now()}@example.test`,
+        phone: '+1-312-555-0188',
+        desiredTitle: 'Care Coordinator',
+        currentTitle: 'Patient Services Associate',
+        currentEmployer: 'Smoke Test Clinic',
+        locationName: 'Chicago, IL',
+        workModes: ['HYBRID', 'ONSITE'],
+        employmentTypes: ['FULL_TIME'],
+        skills: ['care coordination', 'scheduling', 'EHR'],
+        resumeUrl: 'https://example.test/marketplace-resume.pdf',
+        portfolioUrl: 'https://example.test/marketplace-profile',
+        availabilityNote: 'Available for smoke validation.',
+        preferredTenantSlug: tenantSlug,
+        consentAccepted: true,
+      },
+    },
+    200,
+    'public talent profile intake',
+    expectPublicTalentProfileReceipt,
   );
 }
 
@@ -416,6 +453,14 @@ function expectCareersBoard(body) {
   }
 }
 
+function expectHiringMarketplace(body) {
+  const payload = unwrapData(body);
+
+  if (!isRecord(payload) || !isRecord(payload.metrics) || !Array.isArray(payload.data) || !Array.isArray(payload.talentProfiles)) {
+    throw new Error('Expected public hiring marketplace with metrics, data, and talentProfiles.');
+  }
+}
+
 function expectPublicJobDetail(body) {
   const payload = unwrapData(body);
 
@@ -429,6 +474,14 @@ function expectPublicApplicationReceipt(body) {
 
   if (!isRecord(payload) || payload.received !== true || !isRecord(payload.application)) {
     throw new Error('Expected public application receipt.');
+  }
+}
+
+function expectPublicTalentProfileReceipt(body) {
+  const payload = unwrapData(body);
+
+  if (!isRecord(payload) || payload.received !== true || !isRecord(payload.profile)) {
+    throw new Error('Expected public talent profile receipt.');
   }
 }
 

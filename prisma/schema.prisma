@@ -902,6 +902,12 @@ enum RecruitmentPostingStatus {
   ARCHIVED
 }
 
+enum RecruitmentTalentProfileStatus {
+  ACTIVE
+  HIDDEN
+  ARCHIVED
+}
+
 enum AttendancePolicyStatus {
   DRAFT
   ACTIVE
@@ -1424,6 +1430,7 @@ model Tenant {
   leaveRequests                  LeaveRequest[]
   recruitmentRequisitions        RecruitmentRequisition[]
   recruitmentJobPostings         RecruitmentJobPosting[]
+  recruitmentTalentProfiles      RecruitmentTalentProfile[]
   recruitmentCandidates          RecruitmentCandidate[]
   recruitmentPipelineStages      RecruitmentPipelineStage[]
   recruitmentApplications        RecruitmentApplication[]
@@ -4741,6 +4748,39 @@ model RecruitmentJobPosting {
   @@index([tenantId, status])
   @@index([publishedAt])
   @@index([expiresAt])
+}
+
+model RecruitmentTalentProfile {
+  id              String                         @id @default(uuid())
+  tenantId        String?
+  firstName       String
+  lastName        String
+  email           String                         @unique
+  phone           String?
+  desiredTitle    String?
+  currentTitle    String?
+  currentEmployer String?
+  locationName    String?
+  workModes       RecruitmentWorkMode[]          @default([])
+  employmentTypes RecruitmentEmploymentType[]    @default([])
+  skills          String[]                       @default([])
+  resumeUrl       String?
+  portfolioUrl    String?
+  availabilityNote String?
+  source          String?
+  status          RecruitmentTalentProfileStatus @default(ACTIVE)
+  consentAccepted Boolean                        @default(false)
+  metadata        Json?
+  createdAt       DateTime                       @default(now())
+  updatedAt       DateTime                       @updatedAt
+  deletedAt       DateTime?
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([status])
+  @@index([locationName])
+  @@index([createdAt])
 }
 
 model RecruitmentApprovalRule {
