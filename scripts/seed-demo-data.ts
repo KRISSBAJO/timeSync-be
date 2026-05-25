@@ -38,6 +38,7 @@ import {
   RecruitmentCandidateStatus,
   RecruitmentControlStatus,
   RecruitmentEmploymentType,
+  RecruitmentFeedbackRecommendation,
   RecruitmentInterviewStatus,
   RecruitmentOfferStatus,
   RecruitmentRequisitionStatus,
@@ -2255,6 +2256,59 @@ async function ensureRecruitmentDemoData(
     tags: ['screening', 'operations'],
   });
 
+  const rowan = await ensureRecruitmentCandidate({
+    tenantId,
+    firstName: 'Rowan',
+    lastName: 'Brooks',
+    email: 'rowan.brooks@example.com',
+    phone: '+1-312-555-0188',
+    source: 'Careers Site',
+    currentEmployer: 'BrightPath Home Care',
+    currentTitle: 'Client Services Associate',
+    locationName: 'Evanston, IL',
+    tags: ['new-applicant', 'customer-care'],
+  });
+
+  const elena = await ensureRecruitmentCandidate({
+    tenantId,
+    firstName: 'Elena',
+    lastName: 'Garcia',
+    email: 'elena.garcia@example.com',
+    phone: '+1-872-555-0162',
+    source: 'Agency',
+    status: RecruitmentCandidateStatus.HIRED,
+    currentEmployer: 'Lakeview Health',
+    currentTitle: 'Care Operations Lead',
+    locationName: 'Chicago, IL',
+    tags: ['hired', 'operations-lead'],
+  });
+
+  const noor = await ensureRecruitmentCandidate({
+    tenantId,
+    firstName: 'Noor',
+    lastName: 'Adeyemi',
+    email: 'noor.adeyemi@example.com',
+    phone: '+1-224-555-0149',
+    source: 'Referral',
+    currentEmployer: 'Neighborhood Care',
+    currentTitle: 'Front Desk Specialist',
+    locationName: 'Skokie, IL',
+    tags: ['rejected', 'future-pipeline'],
+  });
+
+  const sloane = await ensureRecruitmentCandidate({
+    tenantId,
+    firstName: 'Sloane',
+    lastName: 'Williams',
+    email: 'sloane.williams@example.com',
+    phone: '+1-708-555-0195',
+    source: 'LinkedIn',
+    currentEmployer: 'Mercy Health',
+    currentTitle: 'Patient Access Specialist',
+    locationName: 'Cicero, IL',
+    tags: ['withdrawn', 'patient-access'],
+  });
+
   const stages = await prisma.recruitmentPipelineStage.findMany({
     where: { tenantId, requisitionId: careReq.id },
   });
@@ -2282,7 +2336,7 @@ async function ensureRecruitmentDemoData(
     score: 91,
   });
 
-  await ensureRecruitmentApplication({
+  const priyaApp = await ensureRecruitmentApplication({
     tenantId,
     candidateId: priya.id,
     requisitionId: careReq.id,
@@ -2293,7 +2347,57 @@ async function ensureRecruitmentDemoData(
     score: 74,
   });
 
-  await ensureRecruitmentInterview({
+  const rowanApp = await ensureRecruitmentApplication({
+    tenantId,
+    candidateId: rowan.id,
+    requisitionId: careReq.id,
+    currentStageId: stageByType.get(RecruitmentStageType.APPLIED)?.id,
+    status: RecruitmentApplicationStatus.APPLIED,
+    source: rowan.source ?? 'Careers Site',
+    appliedAt: new Date('2026-05-23T14:20:00.000Z'),
+    score: 62,
+  });
+
+  const elenaApp = await ensureRecruitmentApplication({
+    tenantId,
+    candidateId: elena.id,
+    requisitionId: careReq.id,
+    currentStageId: stageByType.get(RecruitmentStageType.HIRED)?.id,
+    status: RecruitmentApplicationStatus.HIRED,
+    source: elena.source ?? 'Agency',
+    appliedAt: new Date('2026-05-08T14:00:00.000Z'),
+    lastActivityAt: new Date('2026-05-21T18:20:00.000Z'),
+    score: 96,
+    decisionReason: 'Accepted offer and cleared final hiring review.',
+  });
+
+  const noorApp = await ensureRecruitmentApplication({
+    tenantId,
+    candidateId: noor.id,
+    requisitionId: careReq.id,
+    currentStageId: stageByType.get(RecruitmentStageType.REJECTED)?.id,
+    status: RecruitmentApplicationStatus.REJECTED,
+    source: noor.source ?? 'Referral',
+    appliedAt: new Date('2026-05-09T17:45:00.000Z'),
+    lastActivityAt: new Date('2026-05-16T20:00:00.000Z'),
+    score: 48,
+    decisionReason: 'Care coordination experience did not meet current requisition requirements.',
+  });
+
+  const sloaneApp = await ensureRecruitmentApplication({
+    tenantId,
+    candidateId: sloane.id,
+    requisitionId: careReq.id,
+    currentStageId: stageByType.get(RecruitmentStageType.WITHDRAWN)?.id,
+    status: RecruitmentApplicationStatus.WITHDRAWN,
+    source: sloane.source ?? 'LinkedIn',
+    appliedAt: new Date('2026-05-12T19:30:00.000Z'),
+    lastActivityAt: new Date('2026-05-20T15:15:00.000Z'),
+    score: 77,
+    decisionReason: 'Candidate withdrew after accepting another offer.',
+  });
+
+  const averyInterview = await ensureRecruitmentInterview({
     tenantId,
     applicationId: averyApp.id,
     stageId: stageByType.get(RecruitmentStageType.INTERVIEW)?.id,
@@ -2307,6 +2411,46 @@ async function ensureRecruitmentDemoData(
     notes: 'Panel interview for care operations scenario questions.',
   });
 
+  const elenaInterview = await ensureRecruitmentInterview({
+    tenantId,
+    applicationId: elenaApp.id,
+    stageId: stageByType.get(RecruitmentStageType.INTERVIEW)?.id,
+    scheduledStartAt: new Date('2026-05-17T15:00:00.000Z'),
+    scheduledEndAt: new Date('2026-05-17T16:00:00.000Z'),
+    timezone: 'America/Chicago',
+    locationName: 'Video final panel',
+    meetingUrl: 'https://meet.acme-health.test/recruiting/elena-garcia',
+    status: RecruitmentInterviewStatus.COMPLETED,
+    interviewerIds: [manager.employee.id, hrAdmin.employee.id],
+    notes: 'Final panel focused on care operations leadership and scheduling escalations.',
+  });
+
+  await ensureRecruitmentFeedback({
+    tenantId,
+    interviewId: elenaInterview.id,
+    applicationId: elenaApp.id,
+    reviewerUserId: manager.user.id,
+    rating: 5,
+    recommendation: RecruitmentFeedbackRecommendation.STRONG_YES,
+    strengths: 'Strong escalation judgment, clear service recovery examples, and excellent scheduling operations depth.',
+    concerns: 'Needs onboarding support for internal compliance tooling.',
+    notes: 'Recommended for immediate offer.',
+    submittedAt: new Date('2026-05-17T16:30:00.000Z'),
+  });
+
+  await ensureRecruitmentFeedback({
+    tenantId,
+    interviewId: elenaInterview.id,
+    applicationId: elenaApp.id,
+    reviewerUserId: hrAdmin.user.id,
+    rating: 4,
+    recommendation: RecruitmentFeedbackRecommendation.YES,
+    strengths: 'Good culture fit and strong process orientation.',
+    concerns: 'Confirm compensation expectations before extension.',
+    notes: 'Move to offer approval.',
+    submittedAt: new Date('2026-05-17T16:45:00.000Z'),
+  });
+
   const offer = await ensureRecruitmentOffer({
     tenantId,
     applicationId: mateoApp.id,
@@ -2318,6 +2462,23 @@ async function ensureRecruitmentDemoData(
     decisionNote: 'Competitive offer based on scheduling leadership experience.',
     submittedById: hrAdmin.user.id,
     submittedAt: new Date('2026-05-24T14:00:00.000Z'),
+  });
+
+  const acceptedOffer = await ensureRecruitmentOffer({
+    tenantId,
+    applicationId: elenaApp.id,
+    status: RecruitmentOfferStatus.ACCEPTED,
+    basePayCents: 7000000,
+    currencyCode: 'USD',
+    startDate: new Date('2026-06-03T00:00:00.000Z'),
+    expiresAt: new Date('2026-05-23T23:59:59.000Z'),
+    decisionNote: 'Accepted after final compensation review.',
+    submittedById: hrAdmin.user.id,
+    decidedById: manager.user.id,
+    submittedAt: new Date('2026-05-18T14:00:00.000Z'),
+    decidedAt: new Date('2026-05-19T17:00:00.000Z'),
+    extendedAt: new Date('2026-05-20T14:00:00.000Z'),
+    acceptedAt: new Date('2026-05-21T18:20:00.000Z'),
   });
 
   await ensureRecruitmentApprovalRequest({
@@ -2345,6 +2506,15 @@ async function ensureRecruitmentDemoData(
       where: { id: offer.id },
       data: { approvalRequestId: approval.id },
     });
+  });
+
+  await ensureRecruitmentStoryEvents({
+    tenantId,
+    actorUserId: hrAdmin.user.id,
+    requisition: careReq,
+    applications: [averyApp, mateoApp, priyaApp, rowanApp, elenaApp, noorApp, sloaneApp],
+    interviews: [averyInterview, elenaInterview],
+    offers: [offer, acceptedOffer],
   });
 }
 
@@ -3585,6 +3755,7 @@ async function ensureRecruitmentRequisition(data: {
     { name: 'Offer', type: RecruitmentStageType.OFFER, sequence: 40, isTerminal: false },
     { name: 'Hired', type: RecruitmentStageType.HIRED, sequence: 50, isTerminal: true },
     { name: 'Rejected', type: RecruitmentStageType.REJECTED, sequence: 60, isTerminal: true },
+    { name: 'Withdrawn', type: RecruitmentStageType.WITHDRAWN, sequence: 70, isTerminal: true },
   ];
 
   for (const stage of stages) {
@@ -3623,6 +3794,7 @@ async function ensureRecruitmentCandidate(data: {
   email: string;
   phone: string;
   source: string;
+  status?: RecruitmentCandidateStatus;
   currentEmployer: string;
   currentTitle: string;
   locationName: string;
@@ -3637,7 +3809,7 @@ async function ensureRecruitmentCandidate(data: {
       email: data.email,
       phone: data.phone,
       source: data.source,
-      status: RecruitmentCandidateStatus.ACTIVE,
+      status: data.status ?? RecruitmentCandidateStatus.ACTIVE,
       currentEmployer: data.currentEmployer,
       currentTitle: data.currentTitle,
       locationName: data.locationName,
@@ -3649,7 +3821,7 @@ async function ensureRecruitmentCandidate(data: {
       lastName: data.lastName,
       phone: data.phone,
       source: data.source,
-      status: RecruitmentCandidateStatus.ACTIVE,
+      status: data.status ?? RecruitmentCandidateStatus.ACTIVE,
       currentEmployer: data.currentEmployer,
       currentTitle: data.currentTitle,
       locationName: data.locationName,
@@ -3668,7 +3840,9 @@ async function ensureRecruitmentApplication(data: {
   status: RecruitmentApplicationStatus;
   source: string;
   appliedAt: Date;
+  lastActivityAt?: Date;
   score: number;
+  decisionReason?: string;
 }) {
   return prisma.recruitmentApplication.upsert({
     where: {
@@ -3685,8 +3859,9 @@ async function ensureRecruitmentApplication(data: {
       status: data.status,
       source: data.source,
       appliedAt: data.appliedAt,
-      lastActivityAt: data.appliedAt,
+      lastActivityAt: data.lastActivityAt ?? data.appliedAt,
       score: data.score,
+      decisionReason: data.decisionReason,
       metadata: { demo: true },
     },
     update: {
@@ -3694,8 +3869,9 @@ async function ensureRecruitmentApplication(data: {
       status: data.status,
       source: data.source,
       appliedAt: data.appliedAt,
-      lastActivityAt: data.appliedAt,
+      lastActivityAt: data.lastActivityAt ?? data.appliedAt,
       score: data.score,
+      decisionReason: data.decisionReason,
       rejectedAt: data.status === RecruitmentApplicationStatus.REJECTED ? new Date() : null,
       hiredAt: data.status === RecruitmentApplicationStatus.HIRED ? new Date() : null,
       deletedAt: null,
@@ -3759,7 +3935,11 @@ async function ensureRecruitmentOffer(data: {
   expiresAt: Date;
   decisionNote: string;
   submittedById: string;
+  decidedById?: string;
   submittedAt: Date;
+  decidedAt?: Date;
+  extendedAt?: Date;
+  acceptedAt?: Date;
 }) {
   const existing = await prisma.recruitmentOffer.findFirst({
     where: { tenantId: data.tenantId, applicationId: data.applicationId },
@@ -3772,7 +3952,11 @@ async function ensureRecruitmentOffer(data: {
     expiresAt: data.expiresAt,
     decisionNote: data.decisionNote,
     submittedById: data.submittedById,
+    decidedById: data.decidedById,
     submittedAt: data.submittedAt,
+    decidedAt: data.decidedAt,
+    extendedAt: data.extendedAt,
+    acceptedAt: data.acceptedAt,
     workflowSnapshot: {
       workflowCode: 'RECRUITMENT_OFFER_APPROVAL',
       triggerKey: 'recruitment.offer.submitted',
@@ -3788,6 +3972,343 @@ async function ensureRecruitmentOffer(data: {
         data: {
           tenantId: data.tenantId,
           applicationId: data.applicationId,
+          ...payload,
+        },
+      });
+}
+
+async function ensureRecruitmentFeedback(data: {
+  tenantId: string;
+  interviewId: string;
+  applicationId: string;
+  reviewerUserId: string;
+  rating: number;
+  recommendation: RecruitmentFeedbackRecommendation;
+  strengths: string;
+  concerns: string;
+  notes: string;
+  submittedAt: Date;
+}) {
+  const existing = await prisma.recruitmentInterviewFeedback.findFirst({
+    where: {
+      tenantId: data.tenantId,
+      interviewId: data.interviewId,
+      reviewerUserId: data.reviewerUserId,
+    },
+  });
+  const payload = {
+    applicationId: data.applicationId,
+    rating: data.rating,
+    recommendation: data.recommendation,
+    strengths: data.strengths,
+    concerns: data.concerns,
+    notes: data.notes,
+    submittedAt: data.submittedAt,
+    metadata: { demo: true },
+  };
+
+  return existing
+    ? prisma.recruitmentInterviewFeedback.update({ where: { id: existing.id }, data: payload })
+    : prisma.recruitmentInterviewFeedback.create({
+        data: {
+          tenantId: data.tenantId,
+          interviewId: data.interviewId,
+          reviewerUserId: data.reviewerUserId,
+          ...payload,
+        },
+      });
+}
+
+async function ensureRecruitmentStoryEvents(input: {
+  tenantId: string;
+  actorUserId: string;
+  requisition: { id: string; code: string; title: string; status: RecruitmentRequisitionStatus; headcount: number };
+  applications: Array<{
+    id: string;
+    candidateId: string;
+    requisitionId: string;
+    currentStageId: string | null;
+    status: RecruitmentApplicationStatus;
+    score: number | null;
+  }>;
+  interviews: Array<{
+    id: string;
+    applicationId: string;
+    stageId: string | null;
+    status: RecruitmentInterviewStatus;
+    scheduledStartAt: Date;
+    scheduledEndAt: Date;
+  }>;
+  offers: Array<{
+    id: string;
+    applicationId: string;
+    approvalRequestId: string | null;
+    status: RecruitmentOfferStatus;
+    basePayCents: number | null;
+    currencyCode: string;
+    startDate: Date | null;
+    expiresAt: Date | null;
+  }>;
+}) {
+  await Promise.all([
+    ensureRecruitmentTimeline({
+      tenantId: input.tenantId,
+      actorUserId: input.actorUserId,
+      type: TimelineEventType.RECRUITMENT_REQUISITION_OPENED,
+      title: 'Recruitment requisition opened',
+      description: `${input.requisition.code} is open for ${input.requisition.headcount} hires.`,
+      entityType: 'RecruitmentRequisition',
+      entityId: input.requisition.id,
+      data: { demo: true, code: input.requisition.code, status: input.requisition.status },
+    }),
+    ensureRecruitmentAudit({
+      tenantId: input.tenantId,
+      actorUserId: input.actorUserId,
+      action: AuditAction.ACTIVATE,
+      entityType: 'RecruitmentRequisition',
+      entityId: input.requisition.id,
+      after: { id: input.requisition.id, code: input.requisition.code, status: input.requisition.status },
+    }),
+    ensureRecruitmentOutbox({
+      tenantId: input.tenantId,
+      eventType: 'recruitment.requisition.opened',
+      aggregateType: 'RecruitmentRequisition',
+      aggregateId: input.requisition.id,
+      payload: { id: input.requisition.id, code: input.requisition.code, status: input.requisition.status },
+    }),
+  ]);
+
+  for (const application of input.applications) {
+    await Promise.all([
+      ensureRecruitmentTimeline({
+        tenantId: input.tenantId,
+        actorUserId: input.actorUserId,
+        type: application.status === RecruitmentApplicationStatus.APPLIED ? TimelineEventType.RECRUITMENT_CANDIDATE_APPLIED : TimelineEventType.SYSTEM,
+        title: `Application ${application.status.toLowerCase().replace(/_/g, ' ')}`,
+        description: `Demo application moved to ${application.status}.`,
+        entityType: 'RecruitmentApplication',
+        entityId: application.id,
+        data: {
+          demo: true,
+          applicationId: application.id,
+          candidateId: application.candidateId,
+          requisitionId: application.requisitionId,
+          currentStageId: application.currentStageId,
+          status: application.status,
+          score: application.score,
+        },
+      }),
+      ensureRecruitmentAudit({
+        tenantId: input.tenantId,
+        actorUserId: input.actorUserId,
+        action: AuditAction.UPDATE,
+        entityType: 'RecruitmentApplication',
+        entityId: application.id,
+        after: {
+          id: application.id,
+          candidateId: application.candidateId,
+          requisitionId: application.requisitionId,
+          currentStageId: application.currentStageId,
+          status: application.status,
+          score: application.score,
+        },
+      }),
+      ensureRecruitmentOutbox({
+        tenantId: input.tenantId,
+        eventType: 'recruitment.application.seeded',
+        aggregateType: 'RecruitmentApplication',
+        aggregateId: application.id,
+        payload: { id: application.id, status: application.status, score: application.score },
+      }),
+    ]);
+  }
+
+  for (const interview of input.interviews) {
+    await Promise.all([
+      ensureRecruitmentTimeline({
+        tenantId: input.tenantId,
+        actorUserId: input.actorUserId,
+        type: interview.status === RecruitmentInterviewStatus.SCHEDULED ? TimelineEventType.RECRUITMENT_INTERVIEW_SCHEDULED : TimelineEventType.SYSTEM,
+        title: `Recruitment interview ${interview.status.toLowerCase()}`,
+        description: `Interview ${interview.status.toLowerCase()} for demo candidate pipeline.`,
+        entityType: 'RecruitmentInterview',
+        entityId: interview.id,
+        data: {
+          demo: true,
+          interviewId: interview.id,
+          applicationId: interview.applicationId,
+          stageId: interview.stageId,
+          status: interview.status,
+          scheduledStartAt: interview.scheduledStartAt.toISOString(),
+        },
+      }),
+      ensureRecruitmentAudit({
+        tenantId: input.tenantId,
+        actorUserId: input.actorUserId,
+        action: interview.status === RecruitmentInterviewStatus.SCHEDULED ? AuditAction.CREATE : AuditAction.UPDATE,
+        entityType: 'RecruitmentInterview',
+        entityId: interview.id,
+        after: {
+          id: interview.id,
+          applicationId: interview.applicationId,
+          stageId: interview.stageId,
+          status: interview.status,
+          scheduledStartAt: interview.scheduledStartAt.toISOString(),
+          scheduledEndAt: interview.scheduledEndAt.toISOString(),
+        },
+      }),
+    ]);
+  }
+
+  for (const offer of input.offers) {
+    await Promise.all([
+      ensureRecruitmentTimeline({
+        tenantId: input.tenantId,
+        actorUserId: input.actorUserId,
+        type: offer.status === RecruitmentOfferStatus.ACCEPTED ? TimelineEventType.RECRUITMENT_OFFER_ACCEPTED : TimelineEventType.RECRUITMENT_OFFER_SUBMITTED,
+        title: `Recruitment offer ${offer.status.toLowerCase()}`,
+        description: `Offer package is ${offer.status.toLowerCase()} in the demo hiring workflow.`,
+        entityType: 'RecruitmentOffer',
+        entityId: offer.id,
+        data: { demo: true, offerId: offer.id, applicationId: offer.applicationId, status: offer.status },
+      }),
+      ensureRecruitmentAudit({
+        tenantId: input.tenantId,
+        actorUserId: input.actorUserId,
+        action: offer.status === RecruitmentOfferStatus.ACCEPTED ? AuditAction.APPROVE : AuditAction.UPDATE,
+        entityType: 'RecruitmentOffer',
+        entityId: offer.id,
+        after: {
+          id: offer.id,
+          applicationId: offer.applicationId,
+          approvalRequestId: offer.approvalRequestId,
+          status: offer.status,
+          basePayCents: offer.basePayCents,
+          currencyCode: offer.currencyCode,
+          startDate: offer.startDate?.toISOString() ?? null,
+          expiresAt: offer.expiresAt?.toISOString() ?? null,
+        },
+      }),
+      ensureRecruitmentOutbox({
+        tenantId: input.tenantId,
+        eventType: offer.status === RecruitmentOfferStatus.ACCEPTED ? 'recruitment.offer.accepted' : 'recruitment.offer.submitted',
+        aggregateType: 'RecruitmentOffer',
+        aggregateId: offer.id,
+        payload: { id: offer.id, applicationId: offer.applicationId, status: offer.status },
+      }),
+    ]);
+  }
+}
+
+async function ensureRecruitmentTimeline(input: {
+  tenantId: string;
+  actorUserId: string;
+  type: TimelineEventType;
+  title: string;
+  description: string;
+  entityType: string;
+  entityId: string;
+  data: Prisma.InputJsonValue;
+}) {
+  const existing = await prisma.timelineEvent.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      title: input.title,
+    },
+  });
+  const payload = {
+    actorUserId: input.actorUserId,
+    type: input.type,
+    title: input.title,
+    description: input.description,
+    data: input.data,
+  };
+
+  return existing
+    ? prisma.timelineEvent.update({ where: { id: existing.id }, data: payload })
+    : prisma.timelineEvent.create({
+        data: {
+          tenantId: input.tenantId,
+          entityType: input.entityType,
+          entityId: input.entityId,
+          ...payload,
+        },
+      });
+}
+
+async function ensureRecruitmentAudit(input: {
+  tenantId: string;
+  actorUserId: string;
+  action: AuditAction;
+  entityType: string;
+  entityId: string;
+  after: Prisma.InputJsonValue;
+}) {
+  const existing = await prisma.auditLog.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      module: 'recruitment',
+      action: input.action,
+      entityType: input.entityType,
+      entityId: input.entityId,
+    },
+  });
+  const payload = {
+    actorUserId: input.actorUserId,
+    after: input.after,
+    metadata: { demo: true },
+  };
+
+  return existing
+    ? prisma.auditLog.update({ where: { id: existing.id }, data: payload })
+    : prisma.auditLog.create({
+        data: {
+          tenantId: input.tenantId,
+          action: input.action,
+          module: 'recruitment',
+          entityType: input.entityType,
+          entityId: input.entityId,
+          ...payload,
+        },
+      });
+}
+
+async function ensureRecruitmentOutbox(input: {
+  tenantId: string;
+  eventType: string;
+  aggregateType: string;
+  aggregateId: string;
+  payload: Prisma.InputJsonValue;
+}) {
+  const existing = await prisma.outboxMessage.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      eventType: input.eventType,
+      aggregateType: input.aggregateType,
+      aggregateId: input.aggregateId,
+    },
+  });
+  const payload = {
+    payload: input.payload,
+    status: OutboxStatus.PENDING,
+    attempts: 0,
+    availableAt: new Date(),
+    processedAt: null,
+    failedAt: null,
+    lastError: null,
+    headers: { source: 'scripts/seed-demo-data.ts', demo: true },
+  };
+
+  return existing
+    ? prisma.outboxMessage.update({ where: { id: existing.id }, data: payload })
+    : prisma.outboxMessage.create({
+        data: {
+          tenantId: input.tenantId,
+          eventType: input.eventType,
+          aggregateType: input.aggregateType,
+          aggregateId: input.aggregateId,
           ...payload,
         },
       });
