@@ -101,5 +101,5 @@ export const platformSupportPermissionCodes = platformPermissionCatalog
   .map((permission) => permission.code);
 
 export const tenantAdminTemplatePermissionCodes = platformPermissionCatalog
-  .filter((permission) => !permission.code.startsWith('platform.'))
+  .filter((permission) => !permission.code.startsWith('platform.') && permission.module !== 'qa')
   .map((permission) => permission.code);

@@ -27,6 +27,8 @@ export const permissionTemplates: PermissionTemplate[] = [
       'analytics.read',
       'outbox.read',
       'outbox.process',
+      'qa.read',
+      'qa.run',
     ],
   },
   {
@@ -41,6 +43,7 @@ export const permissionTemplates: PermissionTemplate[] = [
       'dashboard.read',
       'analytics.read',
       'outbox.read',
+      'qa.read',
     ],
   },
   {
@@ -119,8 +122,6 @@ export const permissionTemplates: PermissionTemplate[] = [
       'recruitment.interview',
       'recruitment.offer.write',
       'recruitment.reports.read',
-      'qa.read',
-      'qa.run',
       'audit.read',
       'activity.read',
       'timeline.read',

@@ -187,7 +187,7 @@ const permissionDefinitions = [
 ] as const;
 
 const tenantRolePermissions: Record<string, string[]> = {
-  TENANT_ADMIN: permissionDefinitions.map(([code]) => code),
+  TENANT_ADMIN: permissionDefinitions.map(([code]) => code).filter((code) => !code.startsWith('qa.')),
   HR_ADMIN: [
     'tenants.settings.read',
     'tenants.branding.read',

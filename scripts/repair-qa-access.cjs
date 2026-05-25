@@ -3,7 +3,6 @@ require('dotenv/config');
 const { randomUUID } = require('crypto');
 const { Client } = require('pg');
 
-const tenantSlug = process.env.QA_REPAIR_TENANT_SLUG || process.env.SMOKE_TENANT_SLUG || process.env.DEMO_TENANT_SLUG || 'acme-health';
 const databaseUrl = process.env.DATABASE_URL;
 const dryRun = ['1', 'true', 'yes'].includes(String(process.env.QA_REPAIR_DRY_RUN || '').toLowerCase());
 
@@ -12,8 +11,9 @@ const permissionDefinitions = [
   ['qa.run', 'Run QA Scripts', 'qa', 'Launch and cancel whitelisted QA scripts from the command center.'],
 ];
 
-const rolePermissionCodes = {
-  TENANT_ADMIN: permissionDefinitions.map(([code]) => code),
+const platformRolePermissionCodes = {
+  SUPER_ADMIN: permissionDefinitions.map(([code]) => code),
+  PLATFORM_SUPPORT: ['qa.read'],
 };
 
 async function main() {
@@ -27,9 +27,9 @@ async function main() {
   try {
     await client.query('BEGIN');
 
-    const tenant = await findTenant(client, tenantSlug);
-    const permissions = await upsertPermissions(client, tenant.id);
-    const grants = await grantRolePermissions(client, tenant.id, permissions);
+    const platformPermissions = await upsertPlatformPermissions(client);
+    const platformGrants = await grantPlatformRolePermissions(client, platformPermissions);
+    const tenantRevocations = await revokeTenantQaAccess(client);
 
     if (dryRun) {
       await client.query('ROLLBACK');
@@ -37,9 +37,12 @@ async function main() {
       await client.query('COMMIT');
     }
 
-    console.log(`${dryRun ? 'Dry run complete' : 'QA access repair complete'} for ${tenant.name} (${tenant.slug}).`);
-    console.table(grants);
-    console.log('Next: log out/in if the QA Console navigation is not visible yet.');
+    console.log(`${dryRun ? 'Dry run complete' : 'QA access repair complete'} for platform app-owner access.`);
+    console.log('Platform grants');
+    console.table(platformGrants);
+    console.log('Tenant revocations');
+    console.table(tenantRevocations);
+    console.log('Next: use the Platform workspace and log out/in if the QA Console navigation is not visible yet.');
   } catch (error) {
     try {
       await client.query('ROLLBACK');
@@ -52,39 +55,39 @@ async function main() {
   }
 }
 
-async function findTenant(client, slug) {
-  const result = await client.query(
-    `
-      SELECT "id", "name", "slug"
-      FROM "Tenant"
-      WHERE "slug" = $1 AND "deletedAt" IS NULL
-      LIMIT 1
-    `,
-    [slug],
-  );
-
-  if (result.rows[0]) {
-    return result.rows[0];
-  }
-
-  const tenants = await client.query(
-    `
-      SELECT "slug"
-      FROM "Tenant"
-      WHERE "deletedAt" IS NULL
-      ORDER BY "createdAt" DESC
-      LIMIT 8
-    `,
-  );
-  const knownSlugs = tenants.rows.map((tenant) => tenant.slug).join(', ') || 'none';
-
-  throw new Error(`Tenant "${slug}" was not found. Set QA_REPAIR_TENANT_SLUG to one of: ${knownSlugs}.`);
-}
-
-async function upsertPermissions(client, tenantId) {
+async function upsertPlatformPermissions(client) {
   const permissions = new Map();
 
   for (const [code, name, module, description] of permissionDefinitions) {
+    const existing = await client.query(
+      `
+        SELECT "id", "code"
+        FROM "Permission"
+        WHERE "tenantId" IS NULL AND "code" = $1
+        LIMIT 1
+      `,
+      [code],
+    );
+
+    if (existing.rows[0]) {
+      const result = await client.query(
+        `
+          UPDATE "Permission"
+          SET
+            "name" = $2,
+            "module" = $3,
+            "description" = $4,
+            "isSystem" = true,
+            "updatedAt" = NOW()
+          WHERE "id" = $1
+          RETURNING "id", "code"
+        `,
+        [existing.rows[0].id, name, module, description],
+      );
+      permissions.set(result.rows[0].code, result.rows[0].id);
+      continue;
+    }
+
     const result = await client.query(
       `
         INSERT INTO "Permission" (
@@ -98,16 +101,10 @@ async function upsertPermissions(client, tenantId) {
           "createdAt",
           "updatedAt"
         )
-        VALUES ($1, $2, $3, $4, $5, $6, true, NOW(), NOW())
-        ON CONFLICT ("tenantId", "code") DO UPDATE SET
-          "name" = EXCLUDED."name",
-          "module" = EXCLUDED."module",
-          "description" = EXCLUDED."description",
-          "isSystem" = true,
-          "updatedAt" = NOW()
+        VALUES ($1, NULL, $2, $3, $4, $5, true, NOW(), NOW())
         RETURNING "id", "code"
       `,
-      [randomUUID(), tenantId, code, name, module, description],
+      [randomUUID(), code, name, module, description],
     );
 
     permissions.set(result.rows[0].code, result.rows[0].id);
@@ -116,19 +113,19 @@ async function upsertPermissions(client, tenantId) {
   return permissions;
 }
 
-async function grantRolePermissions(client, tenantId, permissions) {
-  const roleCodes = Object.keys(rolePermissionCodes);
+async function grantPlatformRolePermissions(client, permissions) {
+  const roleCodes = Object.keys(platformRolePermissionCodes);
   const roleResult = await client.query(
     `
       SELECT "id", "code"
       FROM "Role"
-      WHERE "tenantId" = $1
-        AND "code" = ANY($2::text[])
+      WHERE "tenantId" IS NULL
+        AND "code" = ANY($1::text[])
         AND "deletedAt" IS NULL
         AND "isActive" = true
       ORDER BY "code"
     `,
-    [tenantId, roleCodes],
+    [roleCodes],
   );
 
   const rolesByCode = new Map(roleResult.rows.map((role) => [role.code, role]));
@@ -136,7 +133,7 @@ async function grantRolePermissions(client, tenantId, permissions) {
 
   for (const roleCode of roleCodes) {
     const role = rolesByCode.get(roleCode);
-    const permissionCodes = rolePermissionCodes[roleCode];
+    const permissionCodes = platformRolePermissionCodes[roleCode];
 
     if (!role) {
       summary.push({ role: roleCode, permissions: permissionCodes.length, inserted: 0, existing: 0, status: 'role not found' });
@@ -173,8 +170,37 @@ async function grantRolePermissions(client, tenantId, permissions) {
   return summary;
 }
 
+async function revokeTenantQaAccess(client) {
+  const permissionCodes = permissionDefinitions.map(([code]) => code);
+  const rolePermissions = await client.query(
+    `
+      DELETE FROM "RolePermission" rp
+      USING "Permission" p, "Role" r
+      WHERE rp."permissionId" = p."id"
+        AND rp."roleId" = r."id"
+        AND p."tenantId" IS NOT NULL
+        AND p."code" = ANY($1::text[])
+      RETURNING rp."id"
+    `,
+    [permissionCodes],
+  );
+  const permissions = await client.query(
+    `
+      DELETE FROM "Permission"
+      WHERE "tenantId" IS NOT NULL
+        AND "code" = ANY($1::text[])
+      RETURNING "id"
+    `,
+    [permissionCodes],
+  );
+
+  return [
+    { action: 'tenant role permission grants removed', count: rolePermissions.rowCount },
+    { action: 'tenant-scoped QA permissions removed', count: permissions.rowCount },
+  ];
+}
+
 void main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
-

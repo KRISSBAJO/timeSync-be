@@ -263,7 +263,7 @@ const notificationTemplates = [
 const existingTenantRolePermissionAugments: Record<string, string[]> = {
   TENANT_ADMIN: permissions
     .map(([code]) => code)
-    .filter((code) => !code.startsWith('platform.')),
+    .filter((code) => !code.startsWith('platform.') && !code.startsWith('qa.')),
   HR_ADMIN: [
     'tenants.settings.read',
     'tenants.branding.read',
