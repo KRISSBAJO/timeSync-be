@@ -1,4 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import {
   ApprovalRequestStatus,
   AuditAction,
@@ -41,6 +44,7 @@ import {
   PublicCareerQueryDto,
   PublicHiringMarketplaceQueryDto,
   PublicJobApplicationDto,
+  PublicResumeUploadDto,
   PublicTalentProfileDto,
   PublishRecruitmentPostingDto,
   ScheduleInterviewDto,
@@ -73,6 +77,14 @@ const DEFAULT_PIPELINE_STAGES: Array<{
   { name: 'Rejected', type: RecruitmentStageType.REJECTED, sequence: 60, isTerminal: true },
   { name: 'Withdrawn', type: RecruitmentStageType.WITHDRAWN, sequence: 70, isTerminal: true },
 ];
+
+const PUBLIC_RESUME_MAX_BYTES = 3 * 1024 * 1024;
+const PUBLIC_RESUME_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+]);
 
 @Injectable()
 export class RecruitmentService {
@@ -692,12 +704,28 @@ export class RecruitmentService {
     const tenant = await this.findPublicCareersTenant(tenantSlug);
     const posting = await this.findPublicPostingOrThrow(tenant.id, jobSlug);
     const now = new Date();
+    const resumeArtifact = await this.persistPublicResumeUpload(tenant.id, dto.resumeFile);
 
     if (posting.applyBy && posting.applyBy < now) {
       throw new BadRequestException('This job posting is no longer accepting applications.');
     }
 
     const email = dto.email.trim().toLowerCase();
+    const publicProfilePatch: Record<string, unknown> = {
+      consentAccepted: dto.consentAccepted,
+      availabilityNote: dto.availabilityNote,
+      lastAppliedAt: now.toISOString(),
+    };
+
+    if (resumeArtifact) {
+      publicProfilePatch.resumeArtifact = resumeArtifact;
+    }
+
+    const candidateMetadataPatch: Record<string, unknown> = {
+      publicProfile: publicProfilePatch,
+      ...dto.metadata,
+    };
+
     const candidateBefore = await this.prisma.recruitmentCandidate.findUnique({
       where: { tenantId_email: { tenantId: tenant.id, email } },
     });
@@ -716,14 +744,7 @@ export class RecruitmentService {
         locationName: dto.locationName?.trim(),
         resumeUrl: dto.resumeUrl,
         tags: ['public-applicant'],
-        metadata: this.toJson({
-          publicProfile: {
-            consentAccepted: dto.consentAccepted,
-            availabilityNote: dto.availabilityNote,
-            lastAppliedAt: now.toISOString(),
-          },
-          ...dto.metadata,
-        }),
+        metadata: this.toJson(candidateMetadataPatch),
       },
       update: {
         firstName: dto.firstName.trim(),
@@ -735,14 +756,7 @@ export class RecruitmentService {
         locationName: dto.locationName?.trim(),
         resumeUrl: dto.resumeUrl,
         tags: { push: 'public-applicant' },
-        metadata: this.mergeJsonObject(undefined, {
-          publicProfile: {
-            consentAccepted: dto.consentAccepted,
-            availabilityNote: dto.availabilityNote,
-            lastAppliedAt: now.toISOString(),
-          },
-          ...dto.metadata,
-        }),
+        metadata: this.mergeJsonObject(candidateBefore?.metadata, candidateMetadataPatch),
         deletedAt: null,
       },
     });
@@ -784,6 +798,7 @@ export class RecruitmentService {
           tenantSlug,
           availabilityNote: dto.availabilityNote,
           consentAccepted: dto.consentAccepted,
+          resumeArtifact,
           answers: dto.answers ?? {},
           ...dto.metadata,
         }),
@@ -902,7 +917,7 @@ export class RecruitmentService {
       this.prisma.recruitmentTalentProfile.findMany({
         where: { status: RecruitmentTalentProfileStatus.ACTIVE, deletedAt: null },
         orderBy: [{ updatedAt: 'desc' }],
-        take: 6,
+        take: 24,
         select: {
           id: true,
           firstName: true,
@@ -912,6 +927,7 @@ export class RecruitmentService {
           skills: true,
           workModes: true,
           employmentTypes: true,
+          metadata: true,
           updatedAt: true,
         },
       }),
@@ -927,10 +943,7 @@ export class RecruitmentService {
         }),
       },
       data: jobs.map((job) => this.publicMarketplaceJobSummary(job)),
-      talentProfiles: latestProfiles.map((profile) => ({
-        ...profile,
-        displayName: `${profile.firstName} ${profile.lastName.slice(0, 1)}.`,
-      })),
+      talentProfiles: latestProfiles.map((profile) => this.publicTalentProfilePreview(profile)),
       page: { limit, total },
     };
   }
@@ -957,6 +970,17 @@ export class RecruitmentService {
         })
       : null;
 
+    const resumeArtifact = await this.persistPublicResumeUpload(tenant?.id ?? 'marketplace', dto.resumeFile);
+    const profileMetadataPatch: Record<string, unknown> = {
+      preferredTenant: tenant,
+      source: 'public_hiring_marketplace',
+      ...dto.metadata,
+    };
+
+    if (resumeArtifact) {
+      profileMetadataPatch.resumeArtifact = resumeArtifact;
+    }
+
     const before = await this.prisma.recruitmentTalentProfile.findUnique({ where: { email } });
     const profile = await this.prisma.recruitmentTalentProfile.upsert({
       where: { email },
@@ -979,11 +1003,7 @@ export class RecruitmentService {
         source: dto.source?.trim() ?? 'Public hiring marketplace',
         status: dto.status ?? RecruitmentTalentProfileStatus.ACTIVE,
         consentAccepted: dto.consentAccepted,
-        metadata: this.toJson({
-          preferredTenant: tenant,
-          source: 'public_hiring_marketplace',
-          ...dto.metadata,
-        }),
+        metadata: this.toJson(profileMetadataPatch),
       },
       update: {
         tenantId: tenant?.id,
@@ -1004,10 +1024,8 @@ export class RecruitmentService {
         status: dto.status ?? RecruitmentTalentProfileStatus.ACTIVE,
         consentAccepted: dto.consentAccepted,
         metadata: this.mergeJsonObject(before?.metadata, {
-          preferredTenant: tenant,
-          source: 'public_hiring_marketplace',
+          ...profileMetadataPatch,
           lastSubmittedAt: new Date().toISOString(),
-          ...dto.metadata,
         }),
         deletedAt: null,
       },
@@ -1940,6 +1958,56 @@ export class RecruitmentService {
     };
   }
 
+  private publicTalentProfilePreview(profile: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    desiredTitle?: string | null;
+    locationName?: string | null;
+    skills: string[];
+    workModes: RecruitmentWorkMode[];
+    employmentTypes: RecruitmentEmploymentType[];
+    metadata?: Prisma.JsonValue | null;
+    updatedAt: Date;
+  }) {
+    const metadata = this.jsonObject(profile.metadata);
+    const profileBuilder = this.jsonObject(metadata.profileBuilder);
+    const resumeBuilder = this.jsonObject(metadata.resumeBuilder);
+    const resumeArtifact = this.jsonObject(metadata.resumeArtifact);
+    const headline = this.optionalString(profileBuilder.headline) ?? profile.desiredTitle ?? null;
+    const summary =
+      this.optionalString(profileBuilder.professionalSummary) ??
+      this.optionalString(resumeBuilder.summary) ??
+      this.optionalString(profileBuilder.summary) ??
+      null;
+    const resumeUploaded = Boolean(this.optionalString(resumeArtifact.fileName));
+    const profileStrength = [
+      profile.desiredTitle,
+      profile.locationName,
+      profile.skills.length ? profile.skills : null,
+      headline,
+      summary,
+      resumeUploaded ? 'resume' : null,
+    ].filter(Boolean).length;
+
+    return {
+      id: profile.id,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      displayName: `${profile.firstName} ${profile.lastName.slice(0, 1)}.`,
+      desiredTitle: profile.desiredTitle,
+      locationName: profile.locationName,
+      skills: profile.skills,
+      workModes: profile.workModes,
+      employmentTypes: profile.employmentTypes,
+      headline,
+      summary,
+      resumeUploaded,
+      profileStrength,
+      updatedAt: profile.updatedAt,
+    };
+  }
+
   private publicJobDetail(posting: {
     id: string;
     slug: string;
@@ -2520,6 +2588,67 @@ export class RecruitmentService {
   private requireTenant(actor: AuthenticatedPrincipal) {
     if (!actor.tenantId) throw new BadRequestException('A tenant context is required.');
     return actor.tenantId;
+  }
+
+  private async persistPublicResumeUpload(contextId: string, resumeFile?: PublicResumeUploadDto) {
+    if (!resumeFile) return undefined;
+
+    const mimeType = resumeFile.mimeType.trim().toLowerCase();
+    if (!PUBLIC_RESUME_MIME_TYPES.has(mimeType)) {
+      throw new BadRequestException('Resume upload must be a PDF, DOC, DOCX, or TXT file.');
+    }
+
+    if (resumeFile.sizeBytes > PUBLIC_RESUME_MAX_BYTES) {
+      throw new BadRequestException('Resume upload must be 3 MB or smaller.');
+    }
+
+    const dataUrlMatch = /^data:([^;,]+);base64,([\s\S]+)$/.exec(resumeFile.dataUrl);
+    const dataUrlMime = dataUrlMatch?.[1]?.trim().toLowerCase();
+    if (!dataUrlMatch || dataUrlMime !== mimeType) {
+      throw new BadRequestException('Resume upload data is invalid.');
+    }
+
+    const buffer = Buffer.from(dataUrlMatch[2].replace(/\s/g, ''), 'base64');
+    if (!buffer.length || buffer.byteLength > PUBLIC_RESUME_MAX_BYTES) {
+      throw new BadRequestException('Resume upload must be 3 MB or smaller.');
+    }
+
+    const safeContext = this.safeUploadPathSegment(contextId);
+    const now = new Date();
+    const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    const safeName = this.safeUploadFileName(resumeFile.fileName);
+    const storedName = `${randomUUID()}-${safeName}`;
+    const root = process.env.RECRUITMENT_RESUME_UPLOAD_ROOT ?? join(process.cwd(), 'storage', 'recruitment-resumes');
+    const directory = join(root, safeContext, month);
+    const objectKey = `${safeContext}/${month}/${storedName}`;
+
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, storedName), buffer, { flag: 'wx' });
+
+    return {
+      fileName: safeName,
+      mimeType,
+      sizeBytes: buffer.byteLength,
+      storageMode: 'LOCAL_RECRUITMENT_RESUME',
+      objectKey,
+      uploadedAt: now.toISOString(),
+    };
+  }
+
+  private safeUploadPathSegment(value: string) {
+    return value.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 72) || 'marketplace';
+  }
+
+  private safeUploadFileName(value: string) {
+    return basename(value).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 180) || 'resume';
+  }
+
+  private jsonObject(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  }
+
+  private optionalString(value: unknown) {
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
   }
 
   private toJson(value: unknown): Prisma.InputJsonValue | undefined {

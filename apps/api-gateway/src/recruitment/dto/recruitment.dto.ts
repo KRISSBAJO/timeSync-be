@@ -31,6 +31,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 
 export class ListRecruitmentQueryDto {
@@ -432,6 +433,33 @@ export class PublicHiringMarketplaceQueryDto extends PublicCareerQueryDto {
   department?: string;
 }
 
+export class PublicResumeUploadDto {
+  @ApiProperty({ example: 'maya-johnson-resume.pdf' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  fileName!: string;
+
+  @ApiProperty({ example: 'application/pdf' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(160)
+  mimeType!: string;
+
+  @ApiProperty({ example: 245760 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(3145728)
+  sizeBytes!: number;
+
+  @ApiProperty({ example: 'data:application/pdf;base64,JVBERi0x...' })
+  @IsString()
+  @MinLength(20)
+  @MaxLength(4500000)
+  dataUrl!: string;
+}
+
 export class PublicJobApplicationDto {
   @ApiProperty({ example: 'Maya' })
   @IsString()
@@ -479,6 +507,12 @@ export class PublicJobApplicationDto {
   @IsUrl({ require_tld: false })
   @MaxLength(1000)
   resumeUrl?: string;
+
+  @ApiPropertyOptional({ type: () => PublicResumeUploadDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PublicResumeUploadDto)
+  resumeFile?: PublicResumeUploadDto;
 
   @ApiPropertyOptional({ example: 'LinkedIn' })
   @IsOptional()
@@ -581,6 +615,12 @@ export class PublicTalentProfileDto {
   @IsUrl({ require_tld: false })
   @MaxLength(1000)
   resumeUrl?: string;
+
+  @ApiPropertyOptional({ type: () => PublicResumeUploadDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PublicResumeUploadDto)
+  resumeFile?: PublicResumeUploadDto;
 
   @ApiPropertyOptional()
   @IsOptional()
