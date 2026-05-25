@@ -34,6 +34,15 @@ import {
   PositionStatus,
   Prisma,
   PrismaClient,
+  RecruitmentApplicationStatus,
+  RecruitmentCandidateStatus,
+  RecruitmentControlStatus,
+  RecruitmentEmploymentType,
+  RecruitmentInterviewStatus,
+  RecruitmentOfferStatus,
+  RecruitmentRequisitionStatus,
+  RecruitmentStageType,
+  RecruitmentWorkMode,
   ScheduleAssignmentSource,
   ScheduleAssignmentStatus,
   SchedulePolicyStatus,
@@ -155,6 +164,12 @@ const permissionDefinitions = [
   ['leave.approve', 'Approve Leave', 'leave'],
   ['leave.policy.write', 'Manage Leave Policies', 'leave'],
   ['leave.reports.read', 'Read Leave Reports', 'leave'],
+  ['recruitment.read', 'Read Recruitment', 'recruitment'],
+  ['recruitment.write', 'Manage Recruitment', 'recruitment'],
+  ['recruitment.approve', 'Approve Recruitment', 'recruitment'],
+  ['recruitment.interview', 'Submit Recruitment Feedback', 'recruitment'],
+  ['recruitment.offer.write', 'Manage Recruitment Offers', 'recruitment'],
+  ['recruitment.reports.read', 'Read Recruitment Reports', 'recruitment'],
   ['audit.read', 'Read Audit Logs', 'audit'],
   ['activity.read', 'Read Activity Logs', 'audit'],
   ['timeline.read', 'Read Timeline', 'audit'],
@@ -226,6 +241,12 @@ const tenantRolePermissions: Record<string, string[]> = {
     'leave.approve',
     'leave.policy.write',
     'leave.reports.read',
+    'recruitment.read',
+    'recruitment.write',
+    'recruitment.approve',
+    'recruitment.interview',
+    'recruitment.offer.write',
+    'recruitment.reports.read',
     'audit.read',
     'activity.read',
     'timeline.read',
@@ -262,6 +283,9 @@ const tenantRolePermissions: Record<string, string[]> = {
     'leave.team.write',
     'leave.approve',
     'leave.reports.read',
+    'recruitment.read',
+    'recruitment.interview',
+    'recruitment.approve',
     'timeline.read',
     'content.read',
     'dashboard.read',
@@ -557,6 +581,7 @@ async function ensureTenantFeatures(tenantId: string) {
     'SCHEDULING',
     'ATTENDANCE',
     'LEAVE',
+    'RECRUITMENT',
     'ANALYTICS',
     'ESS',
   ]);
@@ -1902,6 +1927,425 @@ async function ensureLeaveDemoData(
   });
 }
 
+async function ensureRecruitmentDemoData(
+  tenantId: string,
+  roles: Map<string, Role>,
+  bundles: Map<string, DemoUserBundle>,
+  positions: Map<string, Position>,
+) {
+  const hrAdmin = requireBundle(bundles, 'HR_ADMIN');
+  const manager = requireBundle(bundles, 'MANAGER');
+  const careSpecialist = positions.get('POS-CARE-SPEC');
+  const hrLead = positions.get('POS-HR-LEAD');
+
+  const requisitionWorkflow = await prisma.workflow.upsert({
+    where: { tenantId_code: { tenantId, code: 'RECRUITMENT_REQUISITION_APPROVAL' } },
+    create: {
+      tenantId,
+      code: 'RECRUITMENT_REQUISITION_APPROVAL',
+      name: 'Recruitment Requisition Approval',
+      description: 'Hiring requests route through HR intake and manager approval before opening.',
+      module: 'recruitment',
+      status: WorkflowStatus.ACTIVE,
+      triggerKey: 'recruitment.requisition.submitted',
+      conditions: { demo: true, appliesTo: ['REQUISITION'] },
+      metadata: { demo: true, template: true, stages: ['hr', 'manager'] },
+    },
+    update: {
+      name: 'Recruitment Requisition Approval',
+      description: 'Hiring requests route through HR intake and manager approval before opening.',
+      module: 'recruitment',
+      status: WorkflowStatus.ACTIVE,
+      triggerKey: 'recruitment.requisition.submitted',
+      deletedAt: null,
+      conditions: { demo: true, appliesTo: ['REQUISITION'] },
+      metadata: { demo: true, template: true, stages: ['hr', 'manager'] },
+    },
+  });
+
+  const requisitionHrStep = await prisma.workflowStep.upsert({
+    where: { workflowId_stepOrder: { workflowId: requisitionWorkflow.id, stepOrder: 1 } },
+    create: {
+      workflowId: requisitionWorkflow.id,
+      stepOrder: 1,
+      name: 'HR intake review',
+      type: WorkflowStepType.REVIEW,
+      approverRoleId: roles.get('HR_ADMIN')?.id,
+      isRequired: true,
+      allowDelegation: true,
+      slaHours: 24,
+      metadata: { demo: true },
+    },
+    update: {
+      name: 'HR intake review',
+      type: WorkflowStepType.REVIEW,
+      approverRoleId: roles.get('HR_ADMIN')?.id,
+      approverExpression: null,
+      isRequired: true,
+      allowDelegation: true,
+      slaHours: 24,
+      metadata: { demo: true },
+    },
+  });
+
+  const requisitionManagerStep = await prisma.workflowStep.upsert({
+    where: { workflowId_stepOrder: { workflowId: requisitionWorkflow.id, stepOrder: 2 } },
+    create: {
+      workflowId: requisitionWorkflow.id,
+      stepOrder: 2,
+      name: 'Hiring manager approval',
+      type: WorkflowStepType.APPROVAL,
+      approverRoleId: roles.get('MANAGER')?.id,
+      isRequired: true,
+      allowDelegation: true,
+      slaHours: 48,
+      metadata: { demo: true },
+    },
+    update: {
+      name: 'Hiring manager approval',
+      type: WorkflowStepType.APPROVAL,
+      approverRoleId: roles.get('MANAGER')?.id,
+      approverExpression: null,
+      isRequired: true,
+      allowDelegation: true,
+      slaHours: 48,
+      metadata: { demo: true },
+    },
+  });
+
+  const offerWorkflow = await prisma.workflow.upsert({
+    where: { tenantId_code: { tenantId, code: 'RECRUITMENT_OFFER_APPROVAL' } },
+    create: {
+      tenantId,
+      code: 'RECRUITMENT_OFFER_APPROVAL',
+      name: 'Recruitment Offer Approval',
+      description: 'Offer packages route to HR and tenant administration before extension.',
+      module: 'recruitment',
+      status: WorkflowStatus.ACTIVE,
+      triggerKey: 'recruitment.offer.submitted',
+      conditions: { demo: true, appliesTo: ['OFFER'] },
+      metadata: { demo: true, template: true, stages: ['hr', 'tenant-admin'] },
+    },
+    update: {
+      name: 'Recruitment Offer Approval',
+      description: 'Offer packages route to HR and tenant administration before extension.',
+      module: 'recruitment',
+      status: WorkflowStatus.ACTIVE,
+      triggerKey: 'recruitment.offer.submitted',
+      deletedAt: null,
+      conditions: { demo: true, appliesTo: ['OFFER'] },
+      metadata: { demo: true, template: true, stages: ['hr', 'tenant-admin'] },
+    },
+  });
+
+  const offerHrStep = await prisma.workflowStep.upsert({
+    where: { workflowId_stepOrder: { workflowId: offerWorkflow.id, stepOrder: 1 } },
+    create: {
+      workflowId: offerWorkflow.id,
+      stepOrder: 1,
+      name: 'HR compensation review',
+      type: WorkflowStepType.REVIEW,
+      approverRoleId: roles.get('HR_ADMIN')?.id,
+      isRequired: true,
+      allowDelegation: true,
+      slaHours: 24,
+      metadata: { demo: true },
+    },
+    update: {
+      name: 'HR compensation review',
+      type: WorkflowStepType.REVIEW,
+      approverRoleId: roles.get('HR_ADMIN')?.id,
+      approverExpression: null,
+      isRequired: true,
+      allowDelegation: true,
+      slaHours: 24,
+      metadata: { demo: true },
+    },
+  });
+
+  const offerAdminStep = await prisma.workflowStep.upsert({
+    where: { workflowId_stepOrder: { workflowId: offerWorkflow.id, stepOrder: 2 } },
+    create: {
+      workflowId: offerWorkflow.id,
+      stepOrder: 2,
+      name: 'Tenant admin approval',
+      type: WorkflowStepType.APPROVAL,
+      approverRoleId: roles.get('TENANT_ADMIN')?.id,
+      isRequired: true,
+      allowDelegation: true,
+      slaHours: 48,
+      metadata: { demo: true },
+    },
+    update: {
+      name: 'Tenant admin approval',
+      type: WorkflowStepType.APPROVAL,
+      approverRoleId: roles.get('TENANT_ADMIN')?.id,
+      approverExpression: null,
+      isRequired: true,
+      allowDelegation: true,
+      slaHours: 48,
+      metadata: { demo: true },
+    },
+  });
+
+  await prisma.recruitmentApprovalRule.upsert({
+    where: { tenantId_code: { tenantId, code: 'STANDARD_REQUISITION_APPROVAL' } },
+    create: {
+      tenantId,
+      workflowId: requisitionWorkflow.id,
+      code: 'STANDARD_REQUISITION_APPROVAL',
+      name: 'Standard requisition workflow',
+      status: RecruitmentControlStatus.ACTIVE,
+      priority: 200,
+      triggerKey: 'recruitment.requisition.submitted',
+      metadata: { demo: true },
+    },
+    update: {
+      workflowId: requisitionWorkflow.id,
+      workflowCode: null,
+      name: 'Standard requisition workflow',
+      status: RecruitmentControlStatus.ACTIVE,
+      priority: 200,
+      triggerKey: 'recruitment.requisition.submitted',
+      deletedAt: null,
+      metadata: { demo: true },
+    },
+  });
+
+  await prisma.recruitmentApprovalRule.upsert({
+    where: { tenantId_code: { tenantId, code: 'STANDARD_OFFER_APPROVAL' } },
+    create: {
+      tenantId,
+      workflowId: offerWorkflow.id,
+      code: 'STANDARD_OFFER_APPROVAL',
+      name: 'Standard offer workflow',
+      status: RecruitmentControlStatus.ACTIVE,
+      priority: 200,
+      triggerKey: 'recruitment.offer.submitted',
+      metadata: { demo: true },
+    },
+    update: {
+      workflowId: offerWorkflow.id,
+      workflowCode: null,
+      name: 'Standard offer workflow',
+      status: RecruitmentControlStatus.ACTIVE,
+      priority: 200,
+      triggerKey: 'recruitment.offer.submitted',
+      deletedAt: null,
+      metadata: { demo: true },
+    },
+  });
+
+  const careReq = await ensureRecruitmentRequisition({
+    tenantId,
+    code: 'REQ-CARE-SPEC-2026',
+    title: 'Care Specialist',
+    positionId: careSpecialist?.id,
+    hiringManagerId: manager.employee.id,
+    recruiterId: hrAdmin.employee.id,
+    departmentName: 'Care Coordination',
+    locationName: 'Chicago, IL',
+    headcount: 3,
+    status: RecruitmentRequisitionStatus.OPEN,
+    employmentType: RecruitmentEmploymentType.FULL_TIME,
+    workMode: RecruitmentWorkMode.HYBRID,
+    priority: 82,
+    targetStartDate: new Date('2026-06-15T00:00:00.000Z'),
+    salaryMinCents: 5200000,
+    salaryMaxCents: 6800000,
+    description: 'Support care operations with scheduling, patient coordination, and service follow-through.',
+    requirements: 'Customer care experience, scheduling literacy, and comfort working in a healthcare operations environment.',
+    createdById: hrAdmin.user.id,
+    submittedById: hrAdmin.user.id,
+    decidedById: manager.user.id,
+    submittedAt: new Date('2026-05-10T14:00:00.000Z'),
+    decidedAt: new Date('2026-05-11T16:00:00.000Z'),
+    openedAt: new Date('2026-05-12T13:00:00.000Z'),
+  });
+
+  const pendingReq = await ensureRecruitmentRequisition({
+    tenantId,
+    code: 'REQ-PEOPLE-OPS-2026',
+    title: 'People Operations Coordinator',
+    positionId: hrLead?.id,
+    hiringManagerId: hrAdmin.employee.id,
+    recruiterId: hrAdmin.employee.id,
+    departmentName: 'People Operations',
+    locationName: 'Remote',
+    headcount: 1,
+    status: RecruitmentRequisitionStatus.SUBMITTED,
+    employmentType: RecruitmentEmploymentType.FULL_TIME,
+    workMode: RecruitmentWorkMode.REMOTE,
+    priority: 64,
+    targetStartDate: new Date('2026-07-01T00:00:00.000Z'),
+    salaryMinCents: 6000000,
+    salaryMaxCents: 7600000,
+    description: 'Coordinate hiring operations, employee documentation, and onboarding readiness.',
+    requirements: 'HR operations background, ATS coordination, and strong internal communication.',
+    createdById: hrAdmin.user.id,
+    submittedById: hrAdmin.user.id,
+    submittedAt: new Date('2026-05-22T15:00:00.000Z'),
+  });
+
+  await ensureRecruitmentApprovalRequest({
+    tenantId,
+    workflowId: requisitionWorkflow.id,
+    submittedById: hrAdmin.user.id,
+    entityType: 'RecruitmentRequisition',
+    entityId: pendingReq.id,
+    title: `Requisition ${pendingReq.code}`,
+    description: pendingReq.description ?? pendingReq.title,
+    module: 'recruitment',
+    source: 'recruitment.requisition',
+    payload: {
+      requisitionId: pendingReq.id,
+      code: pendingReq.code,
+      headcount: pendingReq.headcount,
+      employmentType: pendingReq.employmentType,
+    },
+    steps: [
+      { stepOrder: 1, name: 'HR intake review', assignedUserId: hrAdmin.user.id, assignedRoleId: roles.get('HR_ADMIN')?.id, workflowStepId: requisitionHrStep.id },
+      { stepOrder: 2, name: 'Hiring manager approval', assignedUserId: manager.user.id, assignedRoleId: roles.get('MANAGER')?.id, workflowStepId: requisitionManagerStep.id },
+    ],
+  }).then(async (approval) => {
+    await prisma.recruitmentRequisition.update({
+      where: { id: pendingReq.id },
+      data: { approvalRequestId: approval.id },
+    });
+  });
+
+  const avery = await ensureRecruitmentCandidate({
+    tenantId,
+    firstName: 'Avery',
+    lastName: 'Stone',
+    email: 'avery.stone@example.com',
+    phone: '+1-312-555-0141',
+    source: 'Referral',
+    currentEmployer: 'CareBridge',
+    currentTitle: 'Patient Coordinator',
+    locationName: 'Chicago, IL',
+    tags: ['referral', 'healthcare'],
+  });
+
+  const mateo = await ensureRecruitmentCandidate({
+    tenantId,
+    firstName: 'Mateo',
+    lastName: 'Rivera',
+    email: 'mateo.rivera@example.com',
+    phone: '+1-773-555-0177',
+    source: 'LinkedIn',
+    currentEmployer: 'Northside Clinic',
+    currentTitle: 'Scheduling Lead',
+    locationName: 'Oak Park, IL',
+    tags: ['experienced', 'scheduling'],
+  });
+
+  const priya = await ensureRecruitmentCandidate({
+    tenantId,
+    firstName: 'Priya',
+    lastName: 'Nair',
+    email: 'priya.nair@example.com',
+    phone: '+1-630-555-0118',
+    source: 'Indeed',
+    currentEmployer: 'Community Health Partners',
+    currentTitle: 'Care Assistant',
+    locationName: 'Naperville, IL',
+    tags: ['screening', 'operations'],
+  });
+
+  const stages = await prisma.recruitmentPipelineStage.findMany({
+    where: { tenantId, requisitionId: careReq.id },
+  });
+  const stageByType = new Map(stages.map((stage) => [stage.type, stage]));
+
+  const averyApp = await ensureRecruitmentApplication({
+    tenantId,
+    candidateId: avery.id,
+    requisitionId: careReq.id,
+    currentStageId: stageByType.get(RecruitmentStageType.INTERVIEW)?.id,
+    status: RecruitmentApplicationStatus.INTERVIEW,
+    source: avery.source ?? 'Referral',
+    appliedAt: new Date('2026-05-15T15:30:00.000Z'),
+    score: 82,
+  });
+
+  const mateoApp = await ensureRecruitmentApplication({
+    tenantId,
+    candidateId: mateo.id,
+    requisitionId: careReq.id,
+    currentStageId: stageByType.get(RecruitmentStageType.OFFER)?.id,
+    status: RecruitmentApplicationStatus.OFFER,
+    source: mateo.source ?? 'LinkedIn',
+    appliedAt: new Date('2026-05-13T16:00:00.000Z'),
+    score: 91,
+  });
+
+  await ensureRecruitmentApplication({
+    tenantId,
+    candidateId: priya.id,
+    requisitionId: careReq.id,
+    currentStageId: stageByType.get(RecruitmentStageType.SCREENING)?.id,
+    status: RecruitmentApplicationStatus.SCREENING,
+    source: priya.source ?? 'Indeed',
+    appliedAt: new Date('2026-05-18T17:00:00.000Z'),
+    score: 74,
+  });
+
+  await ensureRecruitmentInterview({
+    tenantId,
+    applicationId: averyApp.id,
+    stageId: stageByType.get(RecruitmentStageType.INTERVIEW)?.id,
+    scheduledStartAt: new Date('2026-05-27T16:00:00.000Z'),
+    scheduledEndAt: new Date('2026-05-27T17:00:00.000Z'),
+    timezone: 'America/Chicago',
+    locationName: 'Video panel',
+    meetingUrl: 'https://meet.acme-health.test/recruiting/avery-stone',
+    status: RecruitmentInterviewStatus.SCHEDULED,
+    interviewerIds: [manager.employee.id, hrAdmin.employee.id],
+    notes: 'Panel interview for care operations scenario questions.',
+  });
+
+  const offer = await ensureRecruitmentOffer({
+    tenantId,
+    applicationId: mateoApp.id,
+    status: RecruitmentOfferStatus.SUBMITTED,
+    basePayCents: 6600000,
+    currencyCode: 'USD',
+    startDate: new Date('2026-06-22T00:00:00.000Z'),
+    expiresAt: new Date('2026-06-05T23:59:59.000Z'),
+    decisionNote: 'Competitive offer based on scheduling leadership experience.',
+    submittedById: hrAdmin.user.id,
+    submittedAt: new Date('2026-05-24T14:00:00.000Z'),
+  });
+
+  await ensureRecruitmentApprovalRequest({
+    tenantId,
+    workflowId: offerWorkflow.id,
+    submittedById: hrAdmin.user.id,
+    entityType: 'RecruitmentOffer',
+    entityId: offer.id,
+    title: `Offer for ${careReq.title}`,
+    description: offer.decisionNote ?? 'Offer approval requested.',
+    module: 'recruitment',
+    source: 'recruitment.offer',
+    payload: {
+      offerId: offer.id,
+      applicationId: offer.applicationId,
+      basePayCents: offer.basePayCents,
+      startDate: offer.startDate?.toISOString(),
+    },
+    steps: [
+      { stepOrder: 1, name: 'HR compensation review', assignedUserId: hrAdmin.user.id, assignedRoleId: roles.get('HR_ADMIN')?.id, workflowStepId: offerHrStep.id },
+      { stepOrder: 2, name: 'Tenant admin approval', assignedRoleId: roles.get('TENANT_ADMIN')?.id, workflowStepId: offerAdminStep.id },
+    ],
+  }).then(async (approval) => {
+    await prisma.recruitmentOffer.update({
+      where: { id: offer.id },
+      data: { approvalRequestId: approval.id },
+    });
+  });
+}
+
 async function ensureApprovalScenario(
   tenantId: string,
   workflowId: string,
@@ -3060,6 +3504,373 @@ async function ensureLeaveApprovalRequest(
   return approval;
 }
 
+async function ensureRecruitmentRequisition(data: {
+  tenantId: string;
+  code: string;
+  title: string;
+  positionId?: string;
+  hiringManagerId?: string;
+  recruiterId?: string;
+  departmentName: string;
+  locationName: string;
+  headcount: number;
+  status: RecruitmentRequisitionStatus;
+  employmentType: RecruitmentEmploymentType;
+  workMode: RecruitmentWorkMode;
+  priority: number;
+  targetStartDate: Date;
+  salaryMinCents: number;
+  salaryMaxCents: number;
+  description: string;
+  requirements: string;
+  createdById: string;
+  submittedById?: string;
+  decidedById?: string;
+  submittedAt?: Date;
+  decidedAt?: Date;
+  openedAt?: Date;
+}) {
+  const payload = {
+    positionId: data.positionId,
+    hiringManagerId: data.hiringManagerId,
+    recruiterId: data.recruiterId,
+    title: data.title,
+    departmentName: data.departmentName,
+    locationName: data.locationName,
+    headcount: data.headcount,
+    status: data.status,
+    employmentType: data.employmentType,
+    workMode: data.workMode,
+    priority: data.priority,
+    targetStartDate: data.targetStartDate,
+    openedAt: data.openedAt,
+    closedAt: data.status === RecruitmentRequisitionStatus.CLOSED ? new Date() : null,
+    salaryMinCents: data.salaryMinCents,
+    salaryMaxCents: data.salaryMaxCents,
+    currencyCode: 'USD',
+    description: data.description,
+    requirements: data.requirements,
+    createdById: data.createdById,
+    submittedById: data.submittedById,
+    decidedById: data.decidedById,
+    submittedAt: data.submittedAt,
+    decidedAt: data.decidedAt,
+    workflowSnapshot: data.submittedAt
+      ? {
+          workflowCode: 'RECRUITMENT_REQUISITION_APPROVAL',
+          triggerKey: 'recruitment.requisition.submitted',
+          source: 'demo-seed',
+        }
+      : undefined,
+    metadata: { demo: true },
+    deletedAt: null,
+  };
+
+  const requisition = await prisma.recruitmentRequisition.upsert({
+    where: { tenantId_code: { tenantId: data.tenantId, code: data.code } },
+    create: {
+      tenantId: data.tenantId,
+      code: data.code,
+      ...payload,
+    },
+    update: payload,
+  });
+
+  const stages = [
+    { name: 'Applied', type: RecruitmentStageType.APPLIED, sequence: 10, isTerminal: false },
+    { name: 'Screening', type: RecruitmentStageType.SCREENING, sequence: 20, isTerminal: false },
+    { name: 'Interview', type: RecruitmentStageType.INTERVIEW, sequence: 30, isTerminal: false },
+    { name: 'Offer', type: RecruitmentStageType.OFFER, sequence: 40, isTerminal: false },
+    { name: 'Hired', type: RecruitmentStageType.HIRED, sequence: 50, isTerminal: true },
+    { name: 'Rejected', type: RecruitmentStageType.REJECTED, sequence: 60, isTerminal: true },
+  ];
+
+  for (const stage of stages) {
+    await prisma.recruitmentPipelineStage.upsert({
+      where: {
+        requisitionId_sequence: {
+          requisitionId: requisition.id,
+          sequence: stage.sequence,
+        },
+      },
+      create: {
+        tenantId: data.tenantId,
+        requisitionId: requisition.id,
+        name: stage.name,
+        type: stage.type,
+        sequence: stage.sequence,
+        isTerminal: stage.isTerminal,
+        metadata: { demo: true },
+      },
+      update: {
+        name: stage.name,
+        type: stage.type,
+        isTerminal: stage.isTerminal,
+        metadata: { demo: true },
+      },
+    });
+  }
+
+  return requisition;
+}
+
+async function ensureRecruitmentCandidate(data: {
+  tenantId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  source: string;
+  currentEmployer: string;
+  currentTitle: string;
+  locationName: string;
+  tags: string[];
+}) {
+  return prisma.recruitmentCandidate.upsert({
+    where: { tenantId_email: { tenantId: data.tenantId, email: data.email } },
+    create: {
+      tenantId: data.tenantId,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email,
+      phone: data.phone,
+      source: data.source,
+      status: RecruitmentCandidateStatus.ACTIVE,
+      currentEmployer: data.currentEmployer,
+      currentTitle: data.currentTitle,
+      locationName: data.locationName,
+      tags: data.tags,
+      metadata: { demo: true },
+    },
+    update: {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      phone: data.phone,
+      source: data.source,
+      status: RecruitmentCandidateStatus.ACTIVE,
+      currentEmployer: data.currentEmployer,
+      currentTitle: data.currentTitle,
+      locationName: data.locationName,
+      tags: data.tags,
+      deletedAt: null,
+      metadata: { demo: true },
+    },
+  });
+}
+
+async function ensureRecruitmentApplication(data: {
+  tenantId: string;
+  candidateId: string;
+  requisitionId: string;
+  currentStageId?: string;
+  status: RecruitmentApplicationStatus;
+  source: string;
+  appliedAt: Date;
+  score: number;
+}) {
+  return prisma.recruitmentApplication.upsert({
+    where: {
+      candidateId_requisitionId: {
+        candidateId: data.candidateId,
+        requisitionId: data.requisitionId,
+      },
+    },
+    create: {
+      tenantId: data.tenantId,
+      candidateId: data.candidateId,
+      requisitionId: data.requisitionId,
+      currentStageId: data.currentStageId,
+      status: data.status,
+      source: data.source,
+      appliedAt: data.appliedAt,
+      lastActivityAt: data.appliedAt,
+      score: data.score,
+      metadata: { demo: true },
+    },
+    update: {
+      currentStageId: data.currentStageId,
+      status: data.status,
+      source: data.source,
+      appliedAt: data.appliedAt,
+      lastActivityAt: data.appliedAt,
+      score: data.score,
+      rejectedAt: data.status === RecruitmentApplicationStatus.REJECTED ? new Date() : null,
+      hiredAt: data.status === RecruitmentApplicationStatus.HIRED ? new Date() : null,
+      deletedAt: null,
+      metadata: { demo: true },
+    },
+  });
+}
+
+async function ensureRecruitmentInterview(data: {
+  tenantId: string;
+  applicationId: string;
+  stageId?: string;
+  scheduledStartAt: Date;
+  scheduledEndAt: Date;
+  timezone: string;
+  locationName: string;
+  meetingUrl: string;
+  status: RecruitmentInterviewStatus;
+  interviewerIds: string[];
+  notes: string;
+}) {
+  const existing = await prisma.recruitmentInterview.findFirst({
+    where: {
+      tenantId: data.tenantId,
+      applicationId: data.applicationId,
+      scheduledStartAt: data.scheduledStartAt,
+    },
+  });
+  const payload = {
+    stageId: data.stageId,
+    scheduledStartAt: data.scheduledStartAt,
+    scheduledEndAt: data.scheduledEndAt,
+    timezone: data.timezone,
+    locationName: data.locationName,
+    meetingUrl: data.meetingUrl,
+    status: data.status,
+    interviewerIds: data.interviewerIds,
+    notes: data.notes,
+    deletedAt: null,
+    metadata: { demo: true },
+  };
+
+  return existing
+    ? prisma.recruitmentInterview.update({ where: { id: existing.id }, data: payload })
+    : prisma.recruitmentInterview.create({
+        data: {
+          tenantId: data.tenantId,
+          applicationId: data.applicationId,
+          ...payload,
+        },
+      });
+}
+
+async function ensureRecruitmentOffer(data: {
+  tenantId: string;
+  applicationId: string;
+  status: RecruitmentOfferStatus;
+  basePayCents: number;
+  currencyCode: string;
+  startDate: Date;
+  expiresAt: Date;
+  decisionNote: string;
+  submittedById: string;
+  submittedAt: Date;
+}) {
+  const existing = await prisma.recruitmentOffer.findFirst({
+    where: { tenantId: data.tenantId, applicationId: data.applicationId },
+  });
+  const payload = {
+    status: data.status,
+    basePayCents: data.basePayCents,
+    currencyCode: data.currencyCode,
+    startDate: data.startDate,
+    expiresAt: data.expiresAt,
+    decisionNote: data.decisionNote,
+    submittedById: data.submittedById,
+    submittedAt: data.submittedAt,
+    workflowSnapshot: {
+      workflowCode: 'RECRUITMENT_OFFER_APPROVAL',
+      triggerKey: 'recruitment.offer.submitted',
+      source: 'demo-seed',
+    },
+    deletedAt: null,
+    metadata: { demo: true },
+  };
+
+  return existing
+    ? prisma.recruitmentOffer.update({ where: { id: existing.id }, data: payload })
+    : prisma.recruitmentOffer.create({
+        data: {
+          tenantId: data.tenantId,
+          applicationId: data.applicationId,
+          ...payload,
+        },
+      });
+}
+
+async function ensureRecruitmentApprovalRequest(input: {
+  tenantId: string;
+  workflowId: string;
+  submittedById: string;
+  module: string;
+  entityType: string;
+  entityId: string;
+  title: string;
+  description: string;
+  source: string;
+  payload: Prisma.InputJsonValue;
+  steps: Array<{
+    stepOrder: number;
+    name: string;
+    assignedUserId?: string;
+    assignedRoleId?: string;
+    workflowStepId?: string;
+  }>;
+}) {
+  const existing = await prisma.approvalRequest.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      module: input.module,
+      entityType: input.entityType,
+      entityId: input.entityId,
+    },
+  });
+  const payload = {
+    workflowId: input.workflowId,
+    module: input.module,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    title: input.title,
+    description: input.description,
+    status: ApprovalRequestStatus.PENDING,
+    submittedById: input.submittedById,
+    submittedAt: new Date('2026-05-24T14:00:00.000Z'),
+    completedAt: null,
+    payload: input.payload,
+    metadata: { demo: true, source: input.source },
+  };
+
+  const approval = existing
+    ? await prisma.approvalRequest.update({ where: { id: existing.id }, data: payload })
+    : await prisma.approvalRequest.create({
+        data: {
+          tenantId: input.tenantId,
+          ...payload,
+        },
+      });
+
+  for (const step of input.steps) {
+    await ensureApprovalStep(
+      approval.id,
+      step.stepOrder,
+      step.name,
+      step.assignedUserId,
+      step.assignedRoleId,
+      step.workflowStepId,
+    );
+  }
+
+  const submitted = await prisma.approvalAction.findFirst({
+    where: { approvalRequestId: approval.id, action: ApprovalActionType.SUBMITTED },
+  });
+  if (!submitted) {
+    await prisma.approvalAction.create({
+      data: {
+        approvalRequestId: approval.id,
+        actorUserId: input.submittedById,
+        action: ApprovalActionType.SUBMITTED,
+        comment: `${input.title} submitted for approval.`,
+        metadata: { demo: true },
+      },
+    });
+  }
+
+  return approval;
+}
+
 function requireBundle(bundles: Map<string, DemoUserBundle>, roleCode: string): DemoUserBundle {
   const bundle = bundles.get(roleCode);
 
@@ -3105,6 +3916,7 @@ async function main() {
   await ensureLifecycleTemplates(tenant.id, bundles);
   const workflow = await ensureWorkflow(tenant.id, roles);
   await ensureLeaveDemoData(tenant.id, roles, bundles);
+  await ensureRecruitmentDemoData(tenant.id, roles, bundles, positions);
   const approval = await ensureApprovalScenario(tenant.id, workflow.id, bundles, roles);
   await ensureDocumentsAndCompliance(tenant.id, bundles);
   await ensureNotifications(tenant.id, bundles);

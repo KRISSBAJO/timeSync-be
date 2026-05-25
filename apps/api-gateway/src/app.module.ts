@@ -30,6 +30,7 @@ import { OrganizationModule } from './organization/organization.module';
 import { PersonsModule } from './persons/persons.module';
 import { PositionsModule } from './positions/positions.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { RecruitmentModule } from './recruitment/recruitment.module';
 import { SchedulingModule } from './scheduling/scheduling.module';
 import { SearchModule } from './search/search.module';
 import { TenantsModule } from './tenants/tenants.module';
@@ -107,6 +108,7 @@ import { WorkflowsModule } from './workflows/workflows.module';
     SchedulingModule,
     AttendanceModule,
     LeaveModule,
+    RecruitmentModule,
     SearchModule,
     HealthModule,
   ],

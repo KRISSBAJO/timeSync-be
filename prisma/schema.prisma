@@ -621,6 +621,14 @@ enum TimelineEventType {
   LEAVE_BALANCE_ADJUSTED
   LEAVE_CALENDAR_UPDATED
   LEAVE_COVERAGE_RISK_FLAGGED
+  RECRUITMENT_REQUISITION_SUBMITTED
+  RECRUITMENT_REQUISITION_APPROVED
+  RECRUITMENT_REQUISITION_OPENED
+  RECRUITMENT_CANDIDATE_APPLIED
+  RECRUITMENT_INTERVIEW_SCHEDULED
+  RECRUITMENT_OFFER_SUBMITTED
+  RECRUITMENT_OFFER_APPROVED
+  RECRUITMENT_OFFER_ACCEPTED
 }
 
 enum FormStatus {
@@ -797,6 +805,93 @@ enum LeaveLedgerEntryType {
   APPROVED_USAGE
   CANCELLED_RESTORE
   REVERSAL
+}
+
+enum RecruitmentControlStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum RecruitmentRequisitionStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  OPEN
+  ON_HOLD
+  CLOSED
+  CANCELLED
+  REJECTED
+}
+
+enum RecruitmentEmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  TEMPORARY
+  INTERN
+  PER_DIEM
+}
+
+enum RecruitmentWorkMode {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
+enum RecruitmentCandidateStatus {
+  ACTIVE
+  DO_NOT_CONTACT
+  HIRED
+  ARCHIVED
+}
+
+enum RecruitmentApplicationStatus {
+  APPLIED
+  SCREENING
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+  WITHDRAWN
+}
+
+enum RecruitmentStageType {
+  APPLIED
+  SCREENING
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+  WITHDRAWN
+  CUSTOM
+}
+
+enum RecruitmentInterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum RecruitmentFeedbackRecommendation {
+  STRONG_YES
+  YES
+  MIXED
+  NO
+  STRONG_NO
+}
+
+enum RecruitmentOfferStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  EXTENDED
+  ACCEPTED
+  DECLINED
+  REJECTED
+  WITHDRAWN
 }
 
 enum AttendancePolicyStatus {
@@ -1319,6 +1414,14 @@ model Tenant {
   leaveBalances                  LeaveBalance[]
   leaveLedgerEntries             LeaveLedgerEntry[]
   leaveRequests                  LeaveRequest[]
+  recruitmentRequisitions        RecruitmentRequisition[]
+  recruitmentCandidates          RecruitmentCandidate[]
+  recruitmentPipelineStages      RecruitmentPipelineStage[]
+  recruitmentApplications        RecruitmentApplication[]
+  recruitmentInterviews          RecruitmentInterview[]
+  recruitmentInterviewFeedback   RecruitmentInterviewFeedback[]
+  recruitmentOffers              RecruitmentOffer[]
+  recruitmentApprovalRules       RecruitmentApprovalRule[]
   attendancePolicies             AttendancePolicy[]
   attendanceRecords              AttendanceRecord[]
   attendancePunches              AttendancePunch[]
@@ -1537,6 +1640,7 @@ model User {
   submittedLeaveRequests         LeaveRequest[]                @relation("LeaveRequestSubmittedBy")
   decidedLeaveRequests           LeaveRequest[]                @relation("LeaveRequestDecidedBy")
   leaveLedgerEntries             LeaveLedgerEntry[]            @relation("LeaveLedgerEntryActor")
+  reviewedRecruitmentFeedback    RecruitmentInterviewFeedback[] @relation("RecruitmentFeedbackReviewer")
   verifiedPersonDemographics   PersonDemographicProfile[]    @relation("PersonDemographicVerifier")
   verifiedEmployeeReferences   EmployeeReference[]           @relation("EmployeeReferenceVerifier")
   adjudicatedBackgroundChecks  EmployeeBackgroundCheck[]     @relation("EmployeeBackgroundCheckAdjudicator")
@@ -2173,6 +2277,8 @@ model Employee {
   leaveBalances                 LeaveBalance[]
   leaveLedgerEntries            LeaveLedgerEntry[]
   leaveRequests                 LeaveRequest[]
+  recruitmentHiringRequisitions RecruitmentRequisition[] @relation("RecruitmentRequisitionHiringManager")
+  recruitmentRecruiterRequisitions RecruitmentRequisition[] @relation("RecruitmentRequisitionRecruiter")
   attendanceRecords             AttendanceRecord[]
   attendancePunches             AttendancePunch[]
   attendanceBreaks              AttendanceBreak[]
@@ -3005,6 +3111,7 @@ model Position {
   scheduleAssignments    ScheduleAssignment[]
   scheduleCoverageRules  ScheduleCoverageRule[]
   openShifts             OpenShift[]
+  recruitmentRequisitions RecruitmentRequisition[]
   skills                 PositionSkill[]
 
   @@unique([tenantId, code])
@@ -3100,6 +3207,7 @@ model Workflow {
   steps    WorkflowStep[]
   requests ApprovalRequest[]
   leaveApprovalRules LeaveApprovalRule[]
+  recruitmentApprovalRules RecruitmentApprovalRule[]
 
   @@unique([tenantId, code])
   @@index([tenantId, module])
@@ -3160,6 +3268,8 @@ model ApprovalRequest {
   employmentTerms     EmployeeEmploymentTerm[]     @relation("EmployeeEmploymentTermWorkflow")
   compensationChanges EmployeeCompensationChange[] @relation("EmployeeCompensationChangeWorkflow")
   leaveRequests       LeaveRequest[]               @relation("LeaveRequestApproval")
+  recruitmentRequisitions RecruitmentRequisition[]  @relation("RecruitmentRequisitionApproval")
+  recruitmentOffers       RecruitmentOffer[]        @relation("RecruitmentOfferApproval")
 
   @@index([tenantId, status])
   @@index([entityType, entityId])
@@ -4528,6 +4638,267 @@ model LeaveRequest {
   @@index([approvalRequestId])
   @@index([submittedById])
   @@index([decidedById])
+}
+
+// ============================================================
+// RECRUITMENT / ATS / CANDIDATE PIPELINE
+// ============================================================
+
+model RecruitmentRequisition {
+  id                String                       @id @default(uuid())
+  tenantId          String
+  positionId        String?
+  hiringManagerId   String?
+  recruiterId       String?
+  approvalRequestId String?
+  code              String
+  title             String
+  departmentName    String?
+  locationName      String?
+  headcount         Int                          @default(1)
+  status            RecruitmentRequisitionStatus @default(DRAFT)
+  employmentType    RecruitmentEmploymentType    @default(FULL_TIME)
+  workMode          RecruitmentWorkMode          @default(ONSITE)
+  priority          Int                          @default(50)
+  targetStartDate   DateTime?
+  openedAt          DateTime?
+  closedAt          DateTime?
+  salaryMinCents    Int?
+  salaryMaxCents    Int?
+  currencyCode      String                       @default("USD")
+  description       String?
+  requirements      String?
+  workflowSnapshot  Json?
+  metadata          Json?
+  createdById       String?
+  submittedById     String?
+  decidedById       String?
+  submittedAt       DateTime?
+  decidedAt         DateTime?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  deletedAt         DateTime?
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  position        Position?        @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  hiringManager   Employee?        @relation("RecruitmentRequisitionHiringManager", fields: [hiringManagerId], references: [id], onDelete: SetNull)
+  recruiter       Employee?        @relation("RecruitmentRequisitionRecruiter", fields: [recruiterId], references: [id], onDelete: SetNull)
+  approvalRequest ApprovalRequest? @relation("RecruitmentRequisitionApproval", fields: [approvalRequestId], references: [id], onDelete: SetNull)
+  stages          RecruitmentPipelineStage[]
+  applications    RecruitmentApplication[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@index([positionId])
+  @@index([hiringManagerId])
+  @@index([recruiterId])
+  @@index([approvalRequestId])
+}
+
+model RecruitmentApprovalRule {
+  id                 String                   @id @default(uuid())
+  tenantId           String
+  workflowId         String?
+  code               String
+  name               String
+  status             RecruitmentControlStatus @default(ACTIVE)
+  priority           Int                      @default(100)
+  organizationNodeId String?
+  costCenterId       String?
+  positionId         String?
+  employmentType     RecruitmentEmploymentType?
+  minHeadcount       Int?
+  maxHeadcount       Int?
+  minSalaryCents     Int?
+  maxSalaryCents     Int?
+  workflowCode       String?
+  triggerKey         String                   @default("recruitment.requisition.submitted")
+  metadata           Json?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  deletedAt          DateTime?
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workflow Workflow? @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@index([workflowId])
+  @@index([organizationNodeId])
+  @@index([costCenterId])
+  @@index([positionId])
+}
+
+model RecruitmentCandidate {
+  id              String                     @id @default(uuid())
+  tenantId        String
+  firstName       String
+  lastName        String
+  email           String
+  phone           String?
+  source          String?
+  status          RecruitmentCandidateStatus @default(ACTIVE)
+  currentEmployer String?
+  currentTitle    String?
+  locationName    String?
+  resumeUrl       String?
+  tags            String[]                   @default([])
+  metadata        Json?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  deletedAt       DateTime?
+
+  tenant       Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  applications RecruitmentApplication[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId, status])
+  @@index([tenantId, lastName, firstName])
+}
+
+model RecruitmentPipelineStage {
+  id            String               @id @default(uuid())
+  tenantId      String
+  requisitionId String
+  name          String
+  type          RecruitmentStageType @default(CUSTOM)
+  sequence      Int
+  isTerminal    Boolean              @default(false)
+  metadata      Json?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  tenant       Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  requisition  RecruitmentRequisition    @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  applications RecruitmentApplication[]  @relation("RecruitmentCurrentStage")
+  interviews   RecruitmentInterview[]
+
+  @@unique([requisitionId, sequence])
+  @@index([tenantId])
+  @@index([requisitionId])
+  @@index([type])
+}
+
+model RecruitmentApplication {
+  id             String                       @id @default(uuid())
+  tenantId       String
+  candidateId    String
+  requisitionId  String
+  currentStageId String?
+  status         RecruitmentApplicationStatus @default(APPLIED)
+  source         String?
+  appliedAt      DateTime                     @default(now())
+  lastActivityAt DateTime                     @default(now())
+  rejectedAt     DateTime?
+  hiredAt        DateTime?
+  decisionReason String?
+  score          Int?
+  metadata       Json?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  deletedAt      DateTime?
+
+  tenant       Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  candidate    RecruitmentCandidate      @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  requisition  RecruitmentRequisition    @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  currentStage RecruitmentPipelineStage? @relation("RecruitmentCurrentStage", fields: [currentStageId], references: [id], onDelete: SetNull)
+  interviews   RecruitmentInterview[]
+  feedback     RecruitmentInterviewFeedback[]
+  offers       RecruitmentOffer[]
+
+  @@unique([candidateId, requisitionId])
+  @@index([tenantId, status])
+  @@index([requisitionId, status])
+  @@index([candidateId])
+  @@index([currentStageId])
+}
+
+model RecruitmentInterview {
+  id               String                     @id @default(uuid())
+  tenantId         String
+  applicationId    String
+  stageId          String?
+  scheduledStartAt DateTime
+  scheduledEndAt   DateTime
+  timezone         String                     @default("America/Chicago")
+  locationName     String?
+  meetingUrl       String?
+  status           RecruitmentInterviewStatus @default(SCHEDULED)
+  interviewerIds   String[]                   @default([])
+  notes            String?
+  metadata         Json?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  deletedAt        DateTime?
+
+  tenant      Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  application RecruitmentApplication    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  stage       RecruitmentPipelineStage? @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  feedback    RecruitmentInterviewFeedback[]
+
+  @@index([tenantId, scheduledStartAt])
+  @@index([applicationId])
+  @@index([stageId])
+  @@index([tenantId, status])
+}
+
+model RecruitmentInterviewFeedback {
+  id             String                            @id @default(uuid())
+  tenantId       String
+  interviewId    String
+  applicationId  String
+  reviewerUserId String?
+  rating         Int?
+  recommendation RecruitmentFeedbackRecommendation
+  strengths      String?
+  concerns       String?
+  notes          String?
+  submittedAt    DateTime                          @default(now())
+  metadata       Json?
+  createdAt      DateTime                          @default(now())
+  updatedAt      DateTime                          @updatedAt
+
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  interview   RecruitmentInterview   @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  application RecruitmentApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer    User?                  @relation("RecruitmentFeedbackReviewer", fields: [reviewerUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, submittedAt])
+  @@index([interviewId])
+  @@index([applicationId])
+  @@index([reviewerUserId])
+}
+
+model RecruitmentOffer {
+  id                String                 @id @default(uuid())
+  tenantId          String
+  applicationId     String
+  approvalRequestId String?
+  status            RecruitmentOfferStatus @default(DRAFT)
+  basePayCents      Int?
+  currencyCode      String                 @default("USD")
+  startDate         DateTime?
+  expiresAt         DateTime?
+  decisionNote      String?
+  submittedById     String?
+  decidedById       String?
+  submittedAt       DateTime?
+  decidedAt         DateTime?
+  extendedAt        DateTime?
+  acceptedAt        DateTime?
+  workflowSnapshot  Json?
+  metadata          Json?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  deletedAt         DateTime?
+
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  application     RecruitmentApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  approvalRequest ApprovalRequest?       @relation("RecruitmentOfferApproval", fields: [approvalRequestId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([applicationId])
+  @@index([approvalRequestId])
 }
 
 // ============================================================
