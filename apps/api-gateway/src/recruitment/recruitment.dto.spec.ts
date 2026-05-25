@@ -6,6 +6,7 @@ import {
   RecruitmentEmploymentType,
   RecruitmentFeedbackRecommendation,
   RecruitmentRequisitionStatus,
+  RecruitmentStageType,
   RecruitmentWorkMode,
 } from '@prisma/client';
 
@@ -78,6 +79,12 @@ describe('Recruitment DTO validation', () => {
       stageId: 'stage-id',
       score: 88,
       decisionReason: 'Strong care coordination background.',
+    })).resolves.toHaveLength(0);
+
+    await expect(validateDto(MoveApplicationDto, {
+      stageType: RecruitmentStageType.INTERVIEW,
+      score: 91,
+      decisionReason: 'Ready for panel.',
     })).resolves.toHaveLength(0);
 
     await expect(validateDto(ScheduleInterviewDto, {

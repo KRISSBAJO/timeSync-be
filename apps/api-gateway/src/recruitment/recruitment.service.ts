@@ -62,6 +62,7 @@ const DEFAULT_PIPELINE_STAGES: Array<{
   { name: 'Offer', type: RecruitmentStageType.OFFER, sequence: 40 },
   { name: 'Hired', type: RecruitmentStageType.HIRED, sequence: 50, isTerminal: true },
   { name: 'Rejected', type: RecruitmentStageType.REJECTED, sequence: 60, isTerminal: true },
+  { name: 'Withdrawn', type: RecruitmentStageType.WITHDRAWN, sequence: 70, isTerminal: true },
 ];
 
 @Injectable()
@@ -170,6 +171,23 @@ export class RecruitmentService {
     });
 
     return this.paginate(rows, limit);
+  }
+
+  async getRequisitionDetail(actor: AuthenticatedPrincipal, requisitionId: string) {
+    const tenantId = this.requireTenant(actor);
+    const record = await this.prisma.recruitmentRequisition.findFirst({
+      where: { id: requisitionId, tenantId, deletedAt: null },
+      include: this.requisitionDetailInclude,
+    });
+    if (!record) throw new NotFoundException('Recruitment requisition not found.');
+
+    return {
+      record,
+      ...(await this.recordHistory(tenantId, [
+        { entityType: 'RecruitmentRequisition', entityId: record.id },
+        ...record.applications.map((application) => ({ entityType: 'RecruitmentApplication', entityId: application.id })),
+      ])),
+    };
   }
 
   async createRequisition(actor: AuthenticatedPrincipal, dto: CreateRequisitionDto) {
@@ -453,6 +471,23 @@ export class RecruitmentService {
     return this.paginate(rows, limit);
   }
 
+  async getCandidateDetail(actor: AuthenticatedPrincipal, candidateId: string) {
+    const tenantId = this.requireTenant(actor);
+    const record = await this.prisma.recruitmentCandidate.findFirst({
+      where: { id: candidateId, tenantId, deletedAt: null },
+      include: this.candidateDetailInclude,
+    });
+    if (!record) throw new NotFoundException('Recruitment candidate not found.');
+
+    return {
+      record,
+      ...(await this.recordHistory(tenantId, [
+        { entityType: 'RecruitmentCandidate', entityId: record.id },
+        ...record.applications.map((application) => ({ entityType: 'RecruitmentApplication', entityId: application.id })),
+      ])),
+    };
+  }
+
   async createCandidate(actor: AuthenticatedPrincipal, dto: CreateCandidateDto) {
     const tenantId = this.requireTenant(actor);
     const candidate = await this.prisma.recruitmentCandidate.create({
@@ -534,6 +569,24 @@ export class RecruitmentService {
     return this.paginate(rows, limit);
   }
 
+  async getApplicationDetail(actor: AuthenticatedPrincipal, applicationId: string) {
+    const tenantId = this.requireTenant(actor);
+    const record = await this.prisma.recruitmentApplication.findFirst({
+      where: { id: applicationId, tenantId, deletedAt: null },
+      include: this.applicationDetailInclude,
+    });
+    if (!record) throw new NotFoundException('Recruitment application not found.');
+
+    return {
+      record,
+      ...(await this.recordHistory(tenantId, [
+        { entityType: 'RecruitmentApplication', entityId: record.id },
+        ...record.interviews.map((interview) => ({ entityType: 'RecruitmentInterview', entityId: interview.id })),
+        ...record.offers.map((offer) => ({ entityType: 'RecruitmentOffer', entityId: offer.id })),
+      ])),
+    };
+  }
+
   async createApplication(actor: AuthenticatedPrincipal, dto: CreateApplicationDto) {
     const tenantId = this.requireTenant(actor);
     const [candidate, requisition] = await Promise.all([
@@ -579,9 +632,7 @@ export class RecruitmentService {
   async moveApplication(actor: AuthenticatedPrincipal, applicationId: string, dto: MoveApplicationDto) {
     const tenantId = this.requireTenant(actor);
     const application = await this.findApplicationOrThrow(tenantId, applicationId);
-    const stage = await this.prisma.recruitmentPipelineStage.findFirst({
-      where: { id: dto.stageId, tenantId, requisitionId: application.requisitionId },
-    });
+    const stage = await this.resolveApplicationStage(tenantId, application.requisitionId, dto);
     if (!stage) {
       throw new BadRequestException('Pipeline stage is invalid for this application requisition.');
     }
@@ -604,6 +655,20 @@ export class RecruitmentService {
 
     await Promise.all([
       this.writeAudit(this.prisma, actor, tenantId, AuditAction.UPDATE, 'RecruitmentApplication', updated.id, this.applicationState(application), this.applicationState(updated)),
+      status === RecruitmentApplicationStatus.HIRED
+        ? this.prisma.recruitmentCandidate.update({
+            where: { id: updated.candidateId },
+            data: { status: RecruitmentCandidateStatus.HIRED },
+          })
+        : Promise.resolve(),
+      this.writeTimeline(this.prisma, actor, tenantId, TimelineEventType.SYSTEM, 'Recruitment application moved', `${updated.candidate.firstName} ${updated.candidate.lastName} moved to ${stage.name}`, 'RecruitmentApplication', updated.id, {
+        applicationId: updated.id,
+        candidateId: updated.candidateId,
+        requisitionId: updated.requisitionId,
+        stageType: stage.type,
+        status,
+        decisionReason: dto.decisionReason,
+      }),
       this.enqueueOutbox(this.prisma, tenantId, 'recruitment.application.moved', 'RecruitmentApplication', updated.id, this.applicationState(updated)),
     ]);
     return updated;
@@ -629,6 +694,23 @@ export class RecruitmentService {
       include: this.interviewInclude,
     });
     return this.paginate(rows, limit);
+  }
+
+  async getInterviewDetail(actor: AuthenticatedPrincipal, interviewId: string) {
+    const tenantId = this.requireTenant(actor);
+    const record = await this.prisma.recruitmentInterview.findFirst({
+      where: { id: interviewId, tenantId, deletedAt: null },
+      include: this.interviewDetailInclude,
+    });
+    if (!record) throw new NotFoundException('Interview not found.');
+
+    return {
+      record,
+      ...(await this.recordHistory(tenantId, [
+        { entityType: 'RecruitmentInterview', entityId: record.id },
+        { entityType: 'RecruitmentApplication', entityId: record.applicationId },
+      ])),
+    };
   }
 
   async scheduleInterview(actor: AuthenticatedPrincipal, dto: ScheduleInterviewDto) {
@@ -739,6 +821,23 @@ export class RecruitmentService {
       include: this.offerInclude,
     });
     return this.paginate(rows, limit);
+  }
+
+  async getOfferDetail(actor: AuthenticatedPrincipal, offerId: string) {
+    const tenantId = this.requireTenant(actor);
+    const record = await this.prisma.recruitmentOffer.findFirst({
+      where: { id: offerId, tenantId, deletedAt: null },
+      include: this.offerDetailInclude,
+    });
+    if (!record) throw new NotFoundException('Recruitment offer not found.');
+
+    return {
+      record,
+      ...(await this.recordHistory(tenantId, [
+        { entityType: 'RecruitmentOffer', entityId: record.id },
+        { entityType: 'RecruitmentApplication', entityId: record.applicationId },
+      ])),
+    };
   }
 
   async createOffer(actor: AuthenticatedPrincipal, dto: CreateOfferDto) {
@@ -880,6 +979,96 @@ export class RecruitmentService {
       this.enqueueOutbox(this.prisma, tenantId, 'recruitment.offer.rejected', 'RecruitmentOffer', updated.id, this.offerState(updated)),
     ]);
     return updated;
+  }
+
+  async extendOffer(actor: AuthenticatedPrincipal, offerId: string, dto: DecideRecruitmentDto) {
+    const tenantId = this.requireTenant(actor);
+    const offer = await this.findOfferOrThrow(tenantId, offerId);
+
+    if (offer.status !== RecruitmentOfferStatus.APPROVED && offer.status !== RecruitmentOfferStatus.EXTENDED) {
+      throw new BadRequestException('Only approved offers can be extended.');
+    }
+
+    return this.transitionOffer(actor, tenantId, offer, RecruitmentOfferStatus.EXTENDED, dto, {
+      eventType: 'recruitment.offer.extended',
+      auditAction: AuditAction.UPDATE,
+      timelineTitle: 'Recruitment offer extended',
+      data: { extendedAt: new Date() },
+    });
+  }
+
+  async acceptOffer(actor: AuthenticatedPrincipal, offerId: string, dto: DecideRecruitmentDto) {
+    const tenantId = this.requireTenant(actor);
+    const offer = await this.findOfferOrThrow(tenantId, offerId);
+
+    if (offer.status !== RecruitmentOfferStatus.EXTENDED && offer.status !== RecruitmentOfferStatus.APPROVED) {
+      throw new BadRequestException('Only approved or extended offers can be accepted.');
+    }
+
+    const hiredStage = await this.ensurePipelineStage(tenantId, offer.application.requisitionId, RecruitmentStageType.HIRED);
+    const updated = await this.transitionOffer(actor, tenantId, offer, RecruitmentOfferStatus.ACCEPTED, dto, {
+      eventType: 'recruitment.offer.accepted',
+      auditAction: AuditAction.APPROVE,
+      timelineType: TimelineEventType.RECRUITMENT_OFFER_ACCEPTED,
+      timelineTitle: 'Recruitment offer accepted',
+      data: { acceptedAt: new Date() },
+    });
+
+    await Promise.all([
+      this.prisma.recruitmentApplication.update({
+        where: { id: offer.applicationId },
+        data: {
+          currentStageId: hiredStage.id,
+          status: RecruitmentApplicationStatus.HIRED,
+          hiredAt: new Date(),
+          decisionReason: dto.comment?.trim(),
+          lastActivityAt: new Date(),
+        },
+      }),
+      this.prisma.recruitmentCandidate.update({
+        where: { id: offer.application.candidateId },
+        data: { status: RecruitmentCandidateStatus.HIRED },
+      }),
+      this.enqueueOutbox(this.prisma, tenantId, 'recruitment.application.hired', 'RecruitmentApplication', offer.applicationId, {
+        applicationId: offer.applicationId,
+        candidateId: offer.application.candidateId,
+        offerId: offer.id,
+      }),
+    ]);
+
+    return updated;
+  }
+
+  async declineOffer(actor: AuthenticatedPrincipal, offerId: string, dto: DecideRecruitmentDto) {
+    const tenantId = this.requireTenant(actor);
+    const offer = await this.findOfferOrThrow(tenantId, offerId);
+
+    if (offer.status !== RecruitmentOfferStatus.EXTENDED && offer.status !== RecruitmentOfferStatus.APPROVED) {
+      throw new BadRequestException('Only approved or extended offers can be declined.');
+    }
+
+    return this.transitionOffer(actor, tenantId, offer, RecruitmentOfferStatus.DECLINED, dto, {
+      eventType: 'recruitment.offer.declined',
+      auditAction: AuditAction.REJECT,
+      timelineTitle: 'Recruitment offer declined',
+      data: {},
+    });
+  }
+
+  async withdrawOffer(actor: AuthenticatedPrincipal, offerId: string, dto: DecideRecruitmentDto) {
+    const tenantId = this.requireTenant(actor);
+    const offer = await this.findOfferOrThrow(tenantId, offerId);
+
+    if (offer.status === RecruitmentOfferStatus.ACCEPTED || offer.status === RecruitmentOfferStatus.DECLINED) {
+      throw new BadRequestException('Accepted or declined offers cannot be withdrawn.');
+    }
+
+    return this.transitionOffer(actor, tenantId, offer, RecruitmentOfferStatus.WITHDRAWN, dto, {
+      eventType: 'recruitment.offer.withdrawn',
+      auditAction: AuditAction.ARCHIVE,
+      timelineTitle: 'Recruitment offer withdrawn',
+      data: {},
+    });
   }
 
   async listApprovalRules(actor: AuthenticatedPrincipal) {
@@ -1200,6 +1389,131 @@ export class RecruitmentService {
     ]);
   }
 
+  private async transitionOffer(
+    actor: AuthenticatedPrincipal,
+    tenantId: string,
+    offer: RecruitmentOffer & { application: { candidateId: string; requisitionId: string; requisition: RecruitmentRequisition } },
+    status: RecruitmentOfferStatus,
+    dto: DecideRecruitmentDto,
+    options: {
+      eventType: string;
+      auditAction: AuditAction;
+      timelineTitle: string;
+      timelineType?: TimelineEventType;
+      data: Prisma.RecruitmentOfferUpdateInput;
+    },
+  ) {
+    const updated = await this.prisma.recruitmentOffer.update({
+      where: { id: offer.id },
+      data: {
+        ...options.data,
+        status,
+        decidedById: status === RecruitmentOfferStatus.DECLINED || status === RecruitmentOfferStatus.WITHDRAWN ? actor.id : undefined,
+        decidedAt: status === RecruitmentOfferStatus.DECLINED || status === RecruitmentOfferStatus.WITHDRAWN ? new Date() : undefined,
+        decisionNote: dto.comment?.trim() ?? offer.decisionNote,
+        metadata: this.mergeJsonObject(offer.metadata, { lastLifecycleComment: dto.comment, lastLifecycleStatus: status }),
+      },
+      include: this.offerInclude,
+    });
+
+    await Promise.all([
+      this.writeAudit(this.prisma, actor, tenantId, options.auditAction, 'RecruitmentOffer', updated.id, this.offerState(offer), this.offerState(updated)),
+      this.writeTimeline(
+        this.prisma,
+        actor,
+        tenantId,
+        options.timelineType ?? TimelineEventType.SYSTEM,
+        options.timelineTitle,
+        updated.application.requisition.title,
+        'RecruitmentOffer',
+        updated.id,
+        {
+          offerId: updated.id,
+          applicationId: updated.applicationId,
+          status,
+          comment: dto.comment,
+        },
+      ),
+      this.enqueueOutbox(this.prisma, tenantId, options.eventType, 'RecruitmentOffer', updated.id, this.offerState(updated)),
+    ]);
+
+    return updated;
+  }
+
+  private async resolveApplicationStage(tenantId: string, requisitionId: string, dto: MoveApplicationDto) {
+    if (dto.stageId) {
+      return this.prisma.recruitmentPipelineStage.findFirst({
+        where: { id: dto.stageId, tenantId, requisitionId },
+      });
+    }
+
+    if (dto.stageType) {
+      return this.ensurePipelineStage(tenantId, requisitionId, dto.stageType);
+    }
+
+    throw new BadRequestException('A stageId or stageType is required to move an application.');
+  }
+
+  private async ensurePipelineStage(tenantId: string, requisitionId: string, stageType: RecruitmentStageType) {
+    const existing = await this.prisma.recruitmentPipelineStage.findFirst({
+      where: { tenantId, requisitionId, type: stageType },
+      orderBy: [{ sequence: 'asc' }],
+    });
+    if (existing) return existing;
+
+    const definition = DEFAULT_PIPELINE_STAGES.find((stage) => stage.type === stageType) ?? {
+      name: this.humanizeStage(stageType),
+      type: stageType,
+      sequence: 90,
+      isTerminal: false,
+    };
+    const sequenceTaken = await this.prisma.recruitmentPipelineStage.findFirst({
+      where: { tenantId, requisitionId, sequence: definition.sequence },
+      select: { id: true },
+    });
+    const maxSequence = sequenceTaken
+      ? await this.prisma.recruitmentPipelineStage.aggregate({
+          where: { tenantId, requisitionId },
+          _max: { sequence: true },
+        })
+      : null;
+
+    return this.prisma.recruitmentPipelineStage.create({
+      data: {
+        tenant: { connect: { id: tenantId } },
+        requisition: { connect: { id: requisitionId } },
+        name: definition.name,
+        type: definition.type,
+        sequence: sequenceTaken ? (maxSequence?._max.sequence ?? definition.sequence) + 10 : definition.sequence,
+        isTerminal: definition.isTerminal ?? false,
+      },
+    });
+  }
+
+  private humanizeStage(stageType: RecruitmentStageType) {
+    return stageType.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  private async recordHistory(tenantId: string, references: Array<{ entityType: string; entityId: string }>) {
+    const OR = references.map((reference) => ({ entityType: reference.entityType, entityId: reference.entityId }));
+    const [timeline, audit] = await Promise.all([
+      this.prisma.timelineEvent.findMany({
+        where: { tenantId, OR },
+        orderBy: [{ createdAt: 'desc' }],
+        take: 30,
+        include: { actor: { select: { id: true, email: true, username: true } } },
+      }),
+      this.prisma.auditLog.findMany({
+        where: { tenantId, OR },
+        orderBy: [{ createdAt: 'desc' }],
+        take: 30,
+        include: { actor: { select: { id: true, email: true, username: true } } },
+      }),
+    ]);
+
+    return { timeline, audit };
+  }
+
   private applicationStatusForStage(stageType?: RecruitmentStageType | null) {
     switch (stageType) {
       case RecruitmentStageType.APPLIED:
@@ -1480,6 +1794,111 @@ export class RecruitmentService {
 
   private readonly offerInclude = {
     application: { include: { candidate: true, requisition: true, currentStage: true } },
+    approvalRequest: { include: this.approvalRequestInclude },
+  } satisfies Prisma.RecruitmentOfferInclude;
+
+  private readonly requisitionDetailInclude = {
+    position: true,
+    hiringManager: { include: { person: true } },
+    recruiter: { include: { person: true } },
+    approvalRequest: { include: this.approvalRequestInclude },
+    stages: { orderBy: [{ sequence: 'asc' as const }] },
+    applications: {
+      orderBy: [{ lastActivityAt: 'desc' as const }],
+      include: {
+        candidate: true,
+        currentStage: true,
+        interviews: { orderBy: [{ scheduledStartAt: 'desc' as const }], take: 3 },
+        offers: { orderBy: [{ createdAt: 'desc' as const }], take: 3 },
+      },
+    },
+    _count: { select: { applications: true } },
+  } satisfies Prisma.RecruitmentRequisitionInclude;
+
+  private readonly candidateDetailInclude = {
+    applications: {
+      orderBy: [{ lastActivityAt: 'desc' as const }],
+      include: {
+        requisition: { include: { position: true, stages: { orderBy: [{ sequence: 'asc' as const }] } } },
+        currentStage: true,
+        interviews: {
+          orderBy: [{ scheduledStartAt: 'desc' as const }],
+          take: 5,
+          include: {
+            stage: true,
+            feedback: { include: { reviewer: { select: { id: true, email: true, username: true } } } },
+          },
+        },
+        offers: {
+          orderBy: [{ createdAt: 'desc' as const }],
+          take: 5,
+          include: { approvalRequest: { include: this.approvalRequestInclude } },
+        },
+      },
+    },
+  } satisfies Prisma.RecruitmentCandidateInclude;
+
+  private readonly applicationDetailInclude = {
+    candidate: true,
+    requisition: {
+      include: {
+        position: true,
+        hiringManager: { include: { person: true } },
+        recruiter: { include: { person: true } },
+        approvalRequest: { include: this.approvalRequestInclude },
+        stages: { orderBy: [{ sequence: 'asc' as const }] },
+      },
+    },
+    currentStage: true,
+    interviews: {
+      orderBy: [{ scheduledStartAt: 'desc' as const }],
+      include: {
+        stage: true,
+        feedback: { include: { reviewer: { select: { id: true, email: true, username: true } } } },
+      },
+    },
+    offers: {
+      orderBy: [{ createdAt: 'desc' as const }],
+      include: { approvalRequest: { include: this.approvalRequestInclude } },
+    },
+  } satisfies Prisma.RecruitmentApplicationInclude;
+
+  private readonly interviewDetailInclude = {
+    application: {
+      include: {
+        candidate: true,
+        requisition: { include: { position: true, stages: { orderBy: [{ sequence: 'asc' as const }] } } },
+        currentStage: true,
+        offers: { orderBy: [{ createdAt: 'desc' as const }], take: 5 },
+      },
+    },
+    stage: true,
+    feedback: { include: { reviewer: { select: { id: true, email: true, username: true } } } },
+  } satisfies Prisma.RecruitmentInterviewInclude;
+
+  private readonly offerDetailInclude = {
+    application: {
+      include: {
+        candidate: true,
+        requisition: {
+          include: {
+            position: true,
+            hiringManager: { include: { person: true } },
+            recruiter: { include: { person: true } },
+            stages: { orderBy: [{ sequence: 'asc' as const }] },
+          },
+        },
+        currentStage: true,
+        interviews: {
+          orderBy: [{ scheduledStartAt: 'desc' as const }],
+          take: 5,
+          include: {
+            stage: true,
+            feedback: { include: { reviewer: { select: { id: true, email: true, username: true } } } },
+          },
+        },
+      },
+    },
     approvalRequest: { include: this.approvalRequestInclude },
   } satisfies Prisma.RecruitmentOfferInclude;
 }

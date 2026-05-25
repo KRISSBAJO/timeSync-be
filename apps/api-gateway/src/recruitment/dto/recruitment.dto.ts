@@ -9,6 +9,7 @@ import {
   RecruitmentInterviewStatus,
   RecruitmentOfferStatus,
   RecruitmentRequisitionStatus,
+  RecruitmentStageType,
   RecruitmentWorkMode,
 } from '@prisma/client';
 import {
@@ -412,9 +413,15 @@ export class CreateApplicationDto {
 }
 
 export class MoveApplicationDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  stageId!: string;
+  stageId?: string;
+
+  @ApiPropertyOptional({ enum: RecruitmentStageType })
+  @IsOptional()
+  @IsEnum(RecruitmentStageType)
+  stageType?: RecruitmentStageType;
 
   @ApiPropertyOptional({ enum: RecruitmentApplicationStatus })
   @IsOptional()

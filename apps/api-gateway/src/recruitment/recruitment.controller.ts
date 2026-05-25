@@ -46,6 +46,14 @@ export class RecruitmentController {
     return this.recruitmentService.listRequisitions(user, query);
   }
 
+  @Get('requisitions/:id')
+  @RequirePermissions('recruitment.read')
+  @ApiOperation({ summary: 'Return recruitment requisition detail, related records, and history.' })
+  @ApiOkResponse({ description: 'Recruitment requisition detail returned.' })
+  async getRequisition(@CurrentUser() user: AuthenticatedPrincipal, @Param('id') requisitionId: string) {
+    return this.recruitmentService.getRequisitionDetail(user, requisitionId);
+  }
+
   @Post('requisitions')
   @RequirePermissions('recruitment.write')
   @ApiOperation({ summary: 'Create a requisition with a default hiring pipeline.' })
@@ -130,6 +138,14 @@ export class RecruitmentController {
     return this.recruitmentService.listCandidates(user, query);
   }
 
+  @Get('candidates/:id')
+  @RequirePermissions('recruitment.read')
+  @ApiOperation({ summary: 'Return recruitment candidate detail, applications, and history.' })
+  @ApiOkResponse({ description: 'Recruitment candidate detail returned.' })
+  async getCandidate(@CurrentUser() user: AuthenticatedPrincipal, @Param('id') candidateId: string) {
+    return this.recruitmentService.getCandidateDetail(user, candidateId);
+  }
+
   @Post('candidates')
   @RequirePermissions('recruitment.write')
   @ApiOperation({ summary: 'Create a recruitment candidate.' })
@@ -156,6 +172,14 @@ export class RecruitmentController {
   @ApiOkResponse({ description: 'Recruitment applications returned.' })
   async listApplications(@CurrentUser() user: AuthenticatedPrincipal, @Query() query: ListRecruitmentQueryDto) {
     return this.recruitmentService.listApplications(user, query);
+  }
+
+  @Get('applications/:id')
+  @RequirePermissions('recruitment.read')
+  @ApiOperation({ summary: 'Return recruitment application detail, interviews, offers, and history.' })
+  @ApiOkResponse({ description: 'Recruitment application detail returned.' })
+  async getApplication(@CurrentUser() user: AuthenticatedPrincipal, @Param('id') applicationId: string) {
+    return this.recruitmentService.getApplicationDetail(user, applicationId);
   }
 
   @Post('applications')
@@ -186,6 +210,14 @@ export class RecruitmentController {
     return this.recruitmentService.listInterviews(user, query);
   }
 
+  @Get('interviews/:id')
+  @RequirePermissions('recruitment.read')
+  @ApiOperation({ summary: 'Return recruitment interview detail, feedback, and history.' })
+  @ApiOkResponse({ description: 'Recruitment interview detail returned.' })
+  async getInterview(@CurrentUser() user: AuthenticatedPrincipal, @Param('id') interviewId: string) {
+    return this.recruitmentService.getInterviewDetail(user, interviewId);
+  }
+
   @Post('interviews')
   @RequirePermissions('recruitment.write')
   @ApiOperation({ summary: 'Schedule a recruitment interview.' })
@@ -208,6 +240,14 @@ export class RecruitmentController {
   @ApiOkResponse({ description: 'Recruitment offers returned.' })
   async listOffers(@CurrentUser() user: AuthenticatedPrincipal, @Query() query: ListRecruitmentQueryDto) {
     return this.recruitmentService.listOffers(user, query);
+  }
+
+  @Get('offers/:id')
+  @RequirePermissions('recruitment.read')
+  @ApiOperation({ summary: 'Return recruitment offer detail, approval state, and history.' })
+  @ApiOkResponse({ description: 'Recruitment offer detail returned.' })
+  async getOffer(@CurrentUser() user: AuthenticatedPrincipal, @Param('id') offerId: string) {
+    return this.recruitmentService.getOfferDetail(user, offerId);
   }
 
   @Post('offers')
@@ -264,6 +304,54 @@ export class RecruitmentController {
     @Body() dto: DecideRecruitmentDto,
   ) {
     return this.recruitmentService.rejectOffer(user, offerId, dto);
+  }
+
+  @Post('offers/:id/extend')
+  @RequirePermissions('recruitment.offer.write')
+  @ApiOperation({ summary: 'Extend an approved recruitment offer to the candidate.' })
+  @ApiOkResponse({ description: 'Recruitment offer extended.' })
+  async extendOffer(
+    @CurrentUser() user: AuthenticatedPrincipal,
+    @Param('id') offerId: string,
+    @Body() dto: DecideRecruitmentDto,
+  ) {
+    return this.recruitmentService.extendOffer(user, offerId, dto);
+  }
+
+  @Post('offers/:id/accept')
+  @RequirePermissions('recruitment.offer.write')
+  @ApiOperation({ summary: 'Mark an extended recruitment offer accepted and convert the application to hired.' })
+  @ApiOkResponse({ description: 'Recruitment offer accepted.' })
+  async acceptOffer(
+    @CurrentUser() user: AuthenticatedPrincipal,
+    @Param('id') offerId: string,
+    @Body() dto: DecideRecruitmentDto,
+  ) {
+    return this.recruitmentService.acceptOffer(user, offerId, dto);
+  }
+
+  @Post('offers/:id/decline')
+  @RequirePermissions('recruitment.offer.write')
+  @ApiOperation({ summary: 'Mark an extended recruitment offer declined.' })
+  @ApiOkResponse({ description: 'Recruitment offer declined.' })
+  async declineOffer(
+    @CurrentUser() user: AuthenticatedPrincipal,
+    @Param('id') offerId: string,
+    @Body() dto: DecideRecruitmentDto,
+  ) {
+    return this.recruitmentService.declineOffer(user, offerId, dto);
+  }
+
+  @Post('offers/:id/withdraw')
+  @RequirePermissions('recruitment.offer.write')
+  @ApiOperation({ summary: 'Withdraw a recruitment offer package.' })
+  @ApiOkResponse({ description: 'Recruitment offer withdrawn.' })
+  async withdrawOffer(
+    @CurrentUser() user: AuthenticatedPrincipal,
+    @Param('id') offerId: string,
+    @Body() dto: DecideRecruitmentDto,
+  ) {
+    return this.recruitmentService.withdrawOffer(user, offerId, dto);
   }
 
   @Get('approval-rules')

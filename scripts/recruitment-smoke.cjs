@@ -51,6 +51,7 @@ async function main() {
   const admin = await login('tenant-admin', adminEmail);
   await smokeFetch(admin, '/api/v1/auth/me', { method: 'GET' }, 200, 'admin auth context', expectObject);
   await runEndpoints(admin, adminRecruitmentEndpoints);
+  await runDetailEndpoints(admin);
 
   const manager = await login('manager', managerEmail);
   await smokeFetch(manager, '/api/v1/auth/me', { method: 'GET' }, 200, 'manager auth context', expectObject);
@@ -119,6 +120,30 @@ async function logout(session) {
 async function runEndpoints(session, endpoints) {
   for (const endpoint of endpoints) {
     await smokeFetch(session, endpoint.path, { method: 'GET' }, 200, endpoint.summary, endpoint.validate);
+  }
+}
+
+async function runDetailEndpoints(session) {
+  const requisitions = unwrapData(await smokeFetch(session, '/api/v1/recruitment/requisitions?limit=5', { method: 'GET' }, 200, 'detail seed requisitions', expectPaginated)).data;
+  const candidates = unwrapData(await smokeFetch(session, '/api/v1/recruitment/candidates?limit=5', { method: 'GET' }, 200, 'detail seed candidates', expectPaginated)).data;
+  const applications = unwrapData(await smokeFetch(session, '/api/v1/recruitment/applications?limit=5', { method: 'GET' }, 200, 'detail seed applications', expectPaginated)).data;
+  const interviews = unwrapData(await smokeFetch(session, '/api/v1/recruitment/interviews?limit=5', { method: 'GET' }, 200, 'detail seed interviews', expectPaginated)).data;
+  const offers = unwrapData(await smokeFetch(session, '/api/v1/recruitment/offers?limit=5', { method: 'GET' }, 200, 'detail seed offers', expectPaginated)).data;
+
+  if (requisitions[0]) {
+    await smokeFetch(session, `/api/v1/recruitment/requisitions/${requisitions[0].id}`, { method: 'GET' }, 200, 'requisition detail', expectRecruitmentDetail);
+  }
+  if (candidates[0]) {
+    await smokeFetch(session, `/api/v1/recruitment/candidates/${candidates[0].id}`, { method: 'GET' }, 200, 'candidate detail', expectRecruitmentDetail);
+  }
+  if (applications[0]) {
+    await smokeFetch(session, `/api/v1/recruitment/applications/${applications[0].id}`, { method: 'GET' }, 200, 'application detail', expectRecruitmentDetail);
+  }
+  if (interviews[0]) {
+    await smokeFetch(session, `/api/v1/recruitment/interviews/${interviews[0].id}`, { method: 'GET' }, 200, 'interview detail', expectRecruitmentDetail);
+  }
+  if (offers[0]) {
+    await smokeFetch(session, `/api/v1/recruitment/offers/${offers[0].id}`, { method: 'GET' }, 200, 'offer detail', expectRecruitmentDetail);
   }
 }
 
@@ -321,6 +346,14 @@ function expectPaginated(body) {
 
   if (!isRecord(payload) || !Array.isArray(payload.data)) {
     throw new Error('Expected a paginated response with a data array.');
+  }
+}
+
+function expectRecruitmentDetail(body) {
+  const payload = unwrapData(body);
+
+  if (!isRecord(payload) || !isRecord(payload.record) || !Array.isArray(payload.timeline) || !Array.isArray(payload.audit)) {
+    throw new Error('Expected recruitment detail with record, timeline, and audit arrays.');
   }
 }
 
